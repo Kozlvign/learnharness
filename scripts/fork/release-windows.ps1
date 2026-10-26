@@ -78,6 +78,8 @@ try {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool was not found in PATH." }
     }
     if ((Invoke-Git @('branch', '--show-current')) -ne 'main') { throw 'Check out main first.' }
+    # next build rewrites this generated file; it is never a real change.
+    Invoke-Git @('checkout', '--', 'next-env.d.ts') | Out-Null
     if (Invoke-Git @('status', '--porcelain', '--untracked-files=no')) { throw 'The working tree has uncommitted changes. Commit or discard them first.' }
     if (-not (Invoke-Git @('remote') | Where-Object { $_ -eq 'upstream' })) { Invoke-Git @('remote', 'add', 'upstream', 'https://github.com/amosblomqvist/learnharness.git') | Out-Null }
 
@@ -106,8 +108,10 @@ try {
     $last = ($revisions | Measure-Object -Maximum).Maximum
     if ($last -and -not $Force) {
         $lastTag = "v$major.$minor.$($base + $last)"
-        if ([int](Invoke-Git @('rev-list', '--count', "$lastTag..HEAD")) -eq 0) {
-            Write-Host "Nothing changed since $lastTag. No new release is needed."
+        # Changes to the fork's own scripts and docs do not change the app.
+        $changed = @(Invoke-Git @('diff', '--name-only', "$lastTag..HEAD") | Where-Object { $_ -and $_ -notmatch '^(scripts/fork/|docs/|README\.md$)' })
+        if ($changed.Count -eq 0) {
+            Write-Host "The app has not changed since $lastTag. No new release is needed."
             return
         }
     }
@@ -161,6 +165,7 @@ try {
     Write-Host $_.Exception.Message -ForegroundColor Red
     $exitCode = 1
 } finally {
+    try { & git.exe checkout -- next-env.d.ts 2>$null } catch { }
     Stop-Transcript | Out-Null
     Write-Host "Log: $log"
 }
