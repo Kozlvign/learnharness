@@ -4,8 +4,15 @@ import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages"
 import { NATIVE_SUBSCRIPTIONS, type NativeSubscriptionScope } from "../core/contracts/subscriptions.ts";
 import { nativeSubscriptionId, nativeSubscriptionBackgroundAllowed, subscriptionScope, subscriptionScopeCurrent, subscriptionAdmissionScope, subscriptionLease, subscriptionAbortController, subscriptionDenial } from "./subscription-bridge.ts";
 import { markUnadmittedUsage, type SubscriptionDispatchLifecycle } from "./subscription-request-cycle.ts";
+import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
+import { claudeCodeError } from "./claude-code/stream.ts";
 
 export function nativeSubscriptionError(provider: string, message: string): string {
+	if (provider === CLAUDE_CODE_PROVIDER) {
+		if (/background/i.test(message)) return claudeCodeError("background");
+		if (/catalog|model|stale|changed/i.test(message)) return claudeCodeError("signed-out");
+		return claudeCodeError("failed");
+	}
 	const label = NATIVE_SUBSCRIPTIONS.find((p) => p.logicalId === provider)?.label ?? "Subscription";
 	const suffix = " No API-key fallback was used.";
 	if (/background/i.test(message)) return `${label} background use is off in this app. Enable it in Providers to run this work.${suffix}`;

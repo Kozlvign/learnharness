@@ -2,6 +2,7 @@
  * using Pi's catalog and calculateCost; no copied pricing table lives here. */
 import type { CallUsage, ChatRecord, JobRecord, TurnUsage } from "./contracts.ts";
 import { NATIVE_SUBSCRIPTIONS } from "./contracts/subscriptions.ts";
+import { CLAUDE_CODE_LABEL, CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 
 export type CallPricer = (usage: Partial<CallUsage>, model: string) => number | null;
 export interface SessionPricing {
@@ -18,6 +19,7 @@ export function isChatGPTPlan(model: string | undefined): boolean {
 }
 export function subscriptionLabel(model: string | undefined): string | undefined {
 	if (isChatGPTPlan(model)) return "ChatGPT";
+	if (model?.startsWith(`${CLAUDE_CODE_PROVIDER}:`)) return CLAUDE_CODE_LABEL;
 	return NATIVE_SUBSCRIPTIONS.find((p) => model?.startsWith(`${p.logicalId}:`))?.label;
 }
 export function isSubscriptionModel(model: string | undefined): boolean { return subscriptionLabel(model) !== undefined; }

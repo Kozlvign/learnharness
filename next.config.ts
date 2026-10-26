@@ -107,6 +107,10 @@ const nextConfig: NextConfig = {
 		"pdfjs-dist", // sources v0: bundling breaks its node fake-worker path
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@resvg/resvg-js", // native binding — same
+		// Fork (Claude connection): the Agent SDK spawns Claude Code and its
+		// in-process MCP server must share one MCP SDK instance.
+		"@anthropic-ai/claude-agent-sdk",
+		"@modelcontextprotocol/sdk",
 	],
 };
 
