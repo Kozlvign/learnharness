@@ -51,8 +51,8 @@ function Native([string]$File, [string[]]$Arguments) {
     & $File @Arguments
     if ($LASTEXITCODE -ne 0) { throw "'$File $($Arguments -join ' ')' failed with exit code $LASTEXITCODE." }
 }
-function Git([string[]]$Arguments) {
-    $output = & git @Arguments
+function Invoke-Git([string[]]$Arguments) {
+    $output = & git.exe @Arguments
     if ($LASTEXITCODE -ne 0) { throw "'git $($Arguments -join ' ')' failed with exit code $LASTEXITCODE." }
     $output
 }
@@ -62,21 +62,21 @@ try {
     foreach ($tool in 'git', 'node', 'npm', 'gh') {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool was not found in PATH." }
     }
-    if ((Git @('branch', '--show-current')) -ne 'main') { throw 'Check out main first.' }
-    if (Git @('status', '--porcelain', '--untracked-files=no')) { throw 'The working tree has uncommitted changes. Commit or discard them first.' }
-    if (-not (& git remote | Where-Object { $_ -eq 'upstream' })) { Git @('remote', 'add', 'upstream', 'https://github.com/amosblomqvist/learnharness.git') | Out-Null }
+    if ((Invoke-Git @('branch', '--show-current')) -ne 'main') { throw 'Check out main first.' }
+    if (Invoke-Git @('status', '--porcelain', '--untracked-files=no')) { throw 'The working tree has uncommitted changes. Commit or discard them first.' }
+    if (-not (& git.exe remote | Where-Object { $_ -eq 'upstream' })) { Invoke-Git @('remote', 'add', 'upstream', 'https://github.com/amosblomqvist/learnharness.git') | Out-Null }
 
     if (-not $NoSync) {
         Step 'Syncing with upstream'
-        Git @('fetch', '--quiet', 'origin') | Out-Null
-        Git @('fetch', '--quiet', 'upstream') | Out-Null
-        $behindOrigin = [int](Git @('rev-list', '--count', 'HEAD..origin/main'))
-        if ($behindOrigin -gt 0) { Git @('merge', '--ff-only', '--quiet', 'origin/main') | Out-Null }
-        $behind = [int](Git @('rev-list', '--count', 'HEAD..upstream/main'))
+        Invoke-Git @('fetch', '--quiet', 'origin') | Out-Null
+        Invoke-Git @('fetch', '--quiet', 'upstream') | Out-Null
+        $behindOrigin = [int](Invoke-Git @('rev-list', '--count', 'HEAD..origin/main'))
+        if ($behindOrigin -gt 0) { Invoke-Git @('merge', '--ff-only', '--quiet', 'origin/main') | Out-Null }
+        $behind = [int](Invoke-Git @('rev-list', '--count', 'HEAD..upstream/main'))
         if ($behind -gt 0) {
-            & git merge --no-edit --quiet upstream/main
+            & git.exe merge --no-edit --quiet upstream/main
             if ($LASTEXITCODE -ne 0) {
-                & git merge --abort
+                & git.exe merge --abort
                 throw "Upstream has $behind new commits that conflict with the fork. Merge upstream/main by hand, then run this again."
             }
             Write-Host "Merged $behind upstream commits."
@@ -86,13 +86,13 @@ try {
     $upstreamVersion = ((Get-Content -LiteralPath (Join-Path $repo 'package.json') -Raw -Encoding UTF8) | ConvertFrom-Json).version
     if ($upstreamVersion -notmatch '^(\d+)\.(\d+)\.(\d+)$') { throw "Unexpected version '$upstreamVersion' in package.json." }
     $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $base = [int]$Matches[3] * 100
-    $revisions = @(& git tag -l "v$major.$minor.*" | ForEach-Object {
+    $revisions = @(& git.exe tag -l "v$major.$minor.*" | ForEach-Object {
         if ($_ -match "^v$major\.$minor\.(\d+)$") { [int]$Matches[1] - $base }
     } | Where-Object { $_ -ge 1 -and $_ -le 99 })
     $last = ($revisions | Measure-Object -Maximum).Maximum
     if ($last -and -not $Force) {
         $lastTag = "v$major.$minor.$($base + $last)"
-        if ([int](Git @('rev-list', '--count', "$lastTag..HEAD")) -eq 0) {
+        if ([int](Invoke-Git @('rev-list', '--count', "$lastTag..HEAD")) -eq 0) {
             Write-Host "Nothing changed since $lastTag. No new release is needed."
             return
         }
@@ -124,8 +124,8 @@ try {
     if (-not $NoPublish) {
         Step 'Publishing'
         $tag = "v$version"
-        Git @('tag', '-a', $tag, '-m', "LearnHarness $version (Claude fork of upstream $upstreamVersion)") | Out-Null
-        Git @('push', '--quiet', 'origin', 'main', $tag) | Out-Null
+        Invoke-Git @('tag', '-a', $tag, '-m', "LearnHarness $version (Claude fork of upstream $upstreamVersion)") | Out-Null
+        Invoke-Git @('push', '--quiet', 'origin', 'main', $tag) | Out-Null
         $assets = @($installer, "$installer.blockmap", (Join-Path $repo 'dist\latest.yml'))
         $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
         Native 'gh' (@('release', 'create', $tag) + $assets + @('--repo', $Repository, '--title', "LearnHarness $version", '--notes', $notes, '--latest'))
