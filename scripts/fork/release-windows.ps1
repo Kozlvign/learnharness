@@ -47,14 +47,29 @@ $log = Join-Path $logDir ('release-{0:yyyyMMdd-HHmmss}.log' -f (Get-Date))
 Start-Transcript -LiteralPath $log | Out-Null
 
 function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
+# Windows PowerShell turns a native program's stderr into error records when
+# output is redirected; with Stop they would end the script on a mere warning.
+# Exit codes decide success instead.
 function Native([string]$File, [string[]]$Arguments) {
-    & $File @Arguments
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $File @Arguments 2>&1 | ForEach-Object { "$_" } } finally { $ErrorActionPreference = $previous }
     if ($LASTEXITCODE -ne 0) { throw "'$File $($Arguments -join ' ')' failed with exit code $LASTEXITCODE." }
 }
 function Invoke-Git([string[]]$Arguments) {
-    $output = & git.exe @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "'git $($Arguments -join ' ')' failed with exit code $LASTEXITCODE." }
-    $output
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $lines = @(& git.exe @Arguments 2>&1) } finally { $ErrorActionPreference = $previous }
+    $errors = @($lines | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -ne 0) { throw "'git $($Arguments -join ' ')' failed with exit code $LASTEXITCODE. $($errors -join ' ')" }
+    $lines | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }
+}
+function Invoke-GitStatus([string[]]$Arguments) {
+    # For commands whose exit code is the answer (merge): returns the code.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & git.exe @Arguments 2>&1 | ForEach-Object { "$_" } | Out-Host } finally { $ErrorActionPreference = $previous }
+    $LASTEXITCODE
 }
 
 $exitCode = 0
@@ -64,7 +79,7 @@ try {
     }
     if ((Invoke-Git @('branch', '--show-current')) -ne 'main') { throw 'Check out main first.' }
     if (Invoke-Git @('status', '--porcelain', '--untracked-files=no')) { throw 'The working tree has uncommitted changes. Commit or discard them first.' }
-    if (-not (& git.exe remote | Where-Object { $_ -eq 'upstream' })) { Invoke-Git @('remote', 'add', 'upstream', 'https://github.com/amosblomqvist/learnharness.git') | Out-Null }
+    if (-not (Invoke-Git @('remote') | Where-Object { $_ -eq 'upstream' })) { Invoke-Git @('remote', 'add', 'upstream', 'https://github.com/amosblomqvist/learnharness.git') | Out-Null }
 
     if (-not $NoSync) {
         Step 'Syncing with upstream'
@@ -74,9 +89,8 @@ try {
         if ($behindOrigin -gt 0) { Invoke-Git @('merge', '--ff-only', '--quiet', 'origin/main') | Out-Null }
         $behind = [int](Invoke-Git @('rev-list', '--count', 'HEAD..upstream/main'))
         if ($behind -gt 0) {
-            & git.exe merge --no-edit --quiet upstream/main
-            if ($LASTEXITCODE -ne 0) {
-                & git.exe merge --abort
+            if ((Invoke-GitStatus @('merge', '--no-edit', '--quiet', 'upstream/main')) -ne 0) {
+                Invoke-GitStatus @('merge', '--abort') | Out-Null
                 throw "Upstream has $behind new commits that conflict with the fork. Merge upstream/main by hand, then run this again."
             }
             Write-Host "Merged $behind upstream commits."
@@ -86,7 +100,7 @@ try {
     $upstreamVersion = ((Get-Content -LiteralPath (Join-Path $repo 'package.json') -Raw -Encoding UTF8) | ConvertFrom-Json).version
     if ($upstreamVersion -notmatch '^(\d+)\.(\d+)\.(\d+)$') { throw "Unexpected version '$upstreamVersion' in package.json." }
     $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $base = [int]$Matches[3] * 100
-    $revisions = @(& git.exe tag -l "v$major.$minor.*" | ForEach-Object {
+    $revisions = @(Invoke-Git @('tag', '-l', "v$major.$minor.*") | ForEach-Object {
         if ($_ -match "^v$major\.$minor\.(\d+)$") { [int]$Matches[1] - $base }
     } | Where-Object { $_ -ge 1 -and $_ -le 99 })
     $last = ($revisions | Measure-Object -Maximum).Maximum
