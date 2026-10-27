@@ -46,6 +46,9 @@ describe("standalone JavaScript tracing exclusions and native workaround policy"
 			"node_modules/pdfjs-dist/standard_fonts/**/*",
 			"node_modules/@napi-rs/canvas-*/**/*",
 			"node_modules/@resvg/resvg-js-*/**/*",
+			// Fork: local dictation (docs/dictation.md).
+			"node_modules/sherpa-onnx-node/**/*",
+			"node_modules/sherpa-onnx-*/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/providers/data/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/auth/oauth/{load,github-copilot,xai,device-code}.js",
 			"node_modules/@earendil-works/pi-ai/dist/utils/sleep.js",
