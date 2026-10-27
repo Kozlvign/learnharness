@@ -96,7 +96,10 @@ Only one release runs at a time on the computer. Each run writes a log to `%LOCA
    - Each run fetches the fork and upstream. If neither has new commits, the run ends there.
    - Otherwise it runs the release script with `-Install`. A release is ready about 7 minutes after a change reaches `main`, and it is installed right away when the app is closed.
    - The outcome is saved in `%LOCALAPPDATA%\LearnHarness-fork\state.json`.
-3. **Shortcuts.** It points the desktop's **LearnHarness** icon at `scripts/fork/launcher.ps1`. It also points **Atualizar LearnHarness (Claude)** in the Start menu at the build folder.
+3. **Shortcuts.** It points the desktop's **LearnHarness** icon at the launcher, and **Atualizar LearnHarness (Claude)** in the Start menu at the build folder.
+   - The launcher is a small program, `scripts/fork/launcher.cs`. `scripts/fork/build-launcher.ps1` compiles it with the C# compiler that ships with Windows, using the app's icon, into `%LOCALAPPDATA%\LearnHarness-fork\launcher\LearnHarness Launcher.exe`.
+   - It is a program rather than a script because Kaspersky deletes shortcuts that start a hidden PowerShell.
+   - After each update, the task recompiles it if `launcher.cs` changed.
 
 The same commits are never built twice, even after a restart:
 
@@ -115,6 +118,6 @@ What the icon does when clicked:
 
 The launcher's window follows the app's interface language. If anything goes wrong in the launcher, it still opens the installed app. The installer keeps the desktop shortcut on updates (`KeepShortcuts`), so the icon stays on the launcher.
 
-To undo the setup, run `install-update-task.ps1 -Remove`. It removes the task and points the icon at the app again; the build folder stays.
+To undo the setup, run `install-update-task.ps1 -Remove`. It removes the task and the launcher and points the icon at the app again; the build folder stays.
 
 Leave GitHub Actions off in the fork. Otherwise upstream's release workflow runs on every fork tag and fails, because fork tags don't match `package.json`. To check a branch, run CI by hand with `gh workflow run ci.yml --ref <branch>`.
