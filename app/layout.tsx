@@ -10,6 +10,8 @@ import { AppearanceProvider } from "@/components/settings/appearance";
 import UpdateBanner from "@/components/update-banner";
 import { PluginsProvider } from "@/components/plugins";
 import { readThemeBoot } from "@/src/server";
+import { LanguageBootScript } from "@/components/i18n/boot-script";
+import { LanguageRuntime } from "@/components/i18n/language-provider";
 
 // Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
 // Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
@@ -36,6 +38,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 			suppressHydrationWarning
 		>
 			<body className="min-h-dvh antialiased">
+			{/* Fork: interface language (docs/language.md). */}
+			<LanguageBootScript />
+			<LanguageRuntime />
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}
 			<ServerEventsProvider>
