@@ -89,8 +89,9 @@ At most six sessions are live at once. A session waiting for the learner closes 
 
 1. It merges `upstream/main`, and stops without changing anything if the merge conflicts.
 2. If nothing changed since the last fork release, it exits.
-3. Otherwise it builds and checks the app as upstream's release workflow does: type check, the bridge tests, `next build`, then the provider and server smoke tests.
-4. It runs `electron-builder --win`, tags the commit, and publishes the installer, blockmap and `latest.yml` as a release of the fork. With `-Install` it also installs the build.
+3. It translates new upstream interface text into Portuguese with your Claude Code and commits the catalog ([language.md](language.md)).
+4. It builds and checks the app as upstream's release workflow does: type check, the bridge and language tests, `next build`, then the provider and server smoke tests.
+5. It runs `electron-builder --win`, tags the commit, and publishes the installer, blockmap and `latest.yml` as a release of the fork. With `-Install` it also installs the build.
 
 Installed copies update themselves from the fork's releases: `publish` in `electron-builder.yml` points at the fork. So an upstream release never replaces a fork build. Fork versions put the upstream version and a fork revision into the patch number: upstream `0.3.8`, revision 1 → `0.3.801`. The script applies them at build time with `-c.extraMetadata.version`, so `package.json` keeps upstream's version and merges stay clean.
 
