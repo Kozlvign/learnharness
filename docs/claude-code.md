@@ -85,4 +85,36 @@ At most six sessions are live at once. A session waiting for the learner closes 
 
 Installed copies update themselves from the fork's releases: `publish` in `electron-builder.yml` points at the fork. So an upstream release never replaces a fork build. Fork versions put the upstream version and a fork revision into the patch number: upstream `0.3.8`, revision 1 → `0.3.801`. The script applies them at build time with `-c.extraMetadata.version`, so `package.json` keeps upstream's version and merges stay clean.
 
-`scripts/fork/install-update-task.ps1` registers a daily Windows scheduled task that runs the release script, so new upstream versions reach the installed app without manual steps. Each run writes a log to `%LOCALAPPDATA%\LearnHarness-fork\logs`. Remove the task with `install-update-task.ps1 -Remove`.
+Only one release runs at a time on the computer. Each run writes a log to `%LOCALAPPDATA%\LearnHarness-fork\logs`.
+
+### Automatic updates
+
+`scripts/fork/install-update-task.ps1` sets up this computer so the desktop icon always opens what is on the fork's `main`. Run it once from a checkout of `main`. It does three things:
+
+1. **Build folder.** It clones the fork into `D:\Codes\Projects\learnharness-build`, a folder only the automation uses. Builds there never touch your own checkout: the branch you're on, uncommitted work and `node_modules` stay as they are.
+2. **Scheduled task.** It registers a task that runs `scripts/fork/auto-update.ps1` from that folder every 5 minutes, with no window.
+   - Each run fetches the fork and upstream. If neither has new commits, the run ends there.
+   - Otherwise it runs the release script with `-Install`. A release is ready about 7 minutes after a change reaches `main`, and it is installed right away when the app is closed.
+   - The outcome is saved in `%LOCALAPPDATA%\LearnHarness-fork\state.json`.
+3. **Shortcuts.** It points the desktop's **LearnHarness** icon at `scripts/fork/launcher.ps1`. It also points **Atualizar LearnHarness (Claude)** in the Start menu at the build folder.
+
+The same commits are never built twice, even after a restart:
+
+- `state.json` remembers the last commits handled, so the task only builds again when there are new commits.
+- The release script also skips the build when the app hasn't changed since the last release.
+- A failed update is not retried on its own. New commits retry it, and so does **Atualizar LearnHarness (Claude)**, which runs the task at once in a window.
+- The only exception is a build cut short, for example when the computer turned off mid-build. That one runs again.
+
+What the icon does when clicked:
+
+- If the app is already open, the icon brings it forward.
+- Otherwise it checks the fork's `main` on GitHub, which takes about a second. If `main` has moved since the last run, it starts the task at once.
+- While a version builds, a small window shows the progress. **Open now** opens the installed version without waiting; closing the window cancels the click.
+- If a version was built while the app was open, the icon installs it first, which takes a few seconds, and then opens the app.
+- If the last update failed, the app opens and the window says why, with **View log**.
+
+The launcher's window follows the app's interface language. If anything goes wrong in the launcher, it still opens the installed app. The installer keeps the desktop shortcut on updates (`KeepShortcuts`), so the icon stays on the launcher.
+
+To undo the setup, run `install-update-task.ps1 -Remove`. It removes the task and points the icon at the app again; the build folder stays.
+
+Leave GitHub Actions off in the fork. Otherwise upstream's release workflow runs on every fork tag and fails, because fork tags don't match `package.json`. To check a branch, run CI by hand with `gh workflow run ci.yml --ref <branch>`.
