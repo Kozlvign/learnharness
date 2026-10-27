@@ -13,6 +13,9 @@ import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
 import type { TurnUsage } from "@/src/core";
+import { imagesLabel, sessionStartPath } from "@/src/core";
+import { AttachImagesButton, ComposerImageTray } from "@/components/attachments/composer-images";
+import { useComposerImages } from "@/components/attachments/use-composer-images";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -63,6 +66,8 @@ export function Home({
 		},
 	});
 	const [busy, setBusy] = useState(false);
+	// Fork: attached images (docs/images.md); a session may start from images alone.
+	const images = useComposerImages();
 	/* Run end focuses the topic input (owner, 2026-10-01): the hands are on
 	 * the keyboard from the stop. Falling edge only; this surface's only
 	 * dictation target IS this textarea, so no case-split is needed. */
@@ -112,7 +117,8 @@ export function Home({
 	};
 	const begin = async () => {
 		const t = topicRef.current.trim();
-		if (!t || busy) return;
+		const attached = images.names();
+		if ((!t && attached.length === 0) || busy || images.isUploading()) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -141,7 +147,7 @@ export function Home({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					title: t,
+					title: t || imagesLabel(attached.length),
 					...(mode === "practice" ? { kind: "practice" } : {}),
 					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 				}),
@@ -150,7 +156,7 @@ export function Home({
 			// No settings PUT on create (per-session models, owner
 			// 2026-09-28): the SERVER stamps the newborn from the strong
 			// slot — the same default this surface's model control edits.
-			router.push(`/chat/${id}?prompt=${encodeURIComponent(t)}`);
+			router.push(sessionStartPath(id, t, attached));
 		} catch {
 			setBusy(false);
 		}
@@ -242,15 +248,18 @@ export function Home({
 						)}
 					/>
 					<form
-						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
+						className="flex flex-wrap items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
 						void start();
 					}}
 				>
+					<ComposerImageTray images={images} />
+					<AttachImagesButton images={images} />
 					<textarea
 						ref={topicInputRef}
 						value={topic}
+						onPaste={images.onPaste}
 						onChange={(e) => {
 							topicRef.current = e.target.value;
 							setTopic(e.target.value);
@@ -280,7 +289,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
+						disabled={(!topic.trim() && !dictation.active && images.items.length === 0) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />

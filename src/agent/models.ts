@@ -21,6 +21,7 @@ import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import { claudeCodeModel } from "./claude-code/catalog.ts";
 import { claudeCodeStream } from "./claude-code/stream.ts";
 import { withTutorLanguage } from "./language.ts";
+import { withAttachedImages } from "./attachments.ts";
 
 /** App identity is immutable and shared by Models and every native Agent.
  * Agent's default Pi attribution otherwise overrides the Models identity. */
@@ -125,8 +126,8 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 		streamFn: (requestModel, context, options) => {
 			const purpose = typeof background === "function" ? background : () => background;
 			const stream = spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : claudeCode ? claudeCodeStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
-			// Fork: the learner's language rides on every call (docs/language.md).
-			return stream(requestModel, withTutorLanguage(context), { ...options, reasoning: level === "off" ? undefined : level });
+			// Fork: the learner's language and attached images ride on every call (docs/language.md, docs/images.md).
+			return stream(requestModel, withAttachedImages(withTutorLanguage(context), requestModel), { ...options, reasoning: level === "off" ? undefined : level });
 		},
 	};
 }

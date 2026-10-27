@@ -39,10 +39,12 @@ import {
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { MAX_IMAGES_PER_MESSAGE, parseImageList } from "./attachments.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
-	| { type: "text"; text: string }
+	/** Fork: `images` are attachment names (docs/images.md); with images the text may be empty. */
+	| { type: "text"; text: string; images?: string[] }
 	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData }
 	| { type: "continue" }
 	/** The practice dock's two buttons (owner, 2026-10-04): the learner's
@@ -110,7 +112,7 @@ export function parseDismissInput(input: unknown): DismissInput {
  *  (a send with no live turn is a plain text send, which already exists).
  *  The id is client-minted (steer_<localid>): the queued indicator keys on
  *  it, and the drain's message events upsert the real card by the same id. */
-export type UserSteerInput = { type: "steer"; id: string; text: string };
+export type UserSteerInput = { type: "steer"; id: string; text: string; images?: string[] };
 
 /** Parse and validate a steer event off a request body. */
 export function parseUserSteerInput(input: unknown): UserSteerInput {
@@ -120,10 +122,18 @@ export function parseUserSteerInput(input: unknown): UserSteerInput {
 	if (typeof i.id !== "string" || i.id.length === 0) {
 		throw new ChatInputError("steer input requires a client-minted id");
 	}
-	if (typeof i.text !== "string" || i.text.trim().length === 0) {
+	const images = parsedImages(i.images, "steer");
+	if (typeof i.text !== "string" || (i.text.trim().length === 0 && images.length === 0)) {
 		throw new ChatInputError("steer input requires non-empty text");
 	}
-	return { type: "steer", id: i.id, text: i.text };
+	return images.length > 0 ? { type: "steer", id: i.id, text: i.text, images } : { type: "steer", id: i.id, text: i.text };
+}
+
+/** Fork: a send's attached images (docs/images.md). */
+function parsedImages(value: unknown, kind: string): string[] {
+	const images = parseImageList(value);
+	if (images === null) throw new ChatInputError(`${kind} input's images must be distinct attachment names, at most ${MAX_IMAGES_PER_MESSAGE}`);
+	return images;
 }
 
 /** The native appends a dismissal makes (pure — same orphan discipline
@@ -155,11 +165,13 @@ export function parseChatInput(input: unknown): ChatInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
 	const i = input as Record<string, unknown>;
 	switch (i.type) {
-		case "text":
-			if (typeof i.text !== "string" || (i.text as string).trim().length === 0) {
+		case "text": {
+			const images = parsedImages(i.images, "text");
+			if (typeof i.text !== "string" || ((i.text as string).trim().length === 0 && images.length === 0)) {
 				throw new ChatInputError("text input requires non-empty text");
 			}
-			return { type: "text", text: i.text };
+			return images.length > 0 ? { type: "text", text: i.text, images } : { type: "text", text: i.text };
+		}
 		case "answer":
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
 				throw new ChatInputError("answer input requires toolCallId");
@@ -200,7 +212,7 @@ export function inputAppends(
 ): LhMessage[] {
 	switch (input.type) {
 		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text)];
+			return [...dismissalConclusion(record), newUserMessage(input.text, input.images)];
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {

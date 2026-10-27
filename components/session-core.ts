@@ -19,6 +19,7 @@ import {
 	needsContinuation,
 	danglingQuestionOf,
 	answeredCallIds,
+	imagesLabel,
 	measuredContextTokens,
 	newAnswerResult,
 	newNextMessage,
@@ -140,8 +141,12 @@ export function absorbed(m: LhMessage, record: readonly LhMessage[]): boolean {
 	const role = (m as { role?: string }).role;
 	if (role === "user") {
 		const content = (m as { content?: unknown }).content;
+		// Fork: a message with images is a block list, compared by value (docs/images.md).
+		const same = typeof content === "string"
+			? (other: unknown) => other === content
+			: (other: unknown) => JSON.stringify(other) === JSON.stringify(content);
 		return record.some(
-			(r) => (r as { role?: string }).role === "user" && (r as { content?: unknown }).content === content,
+			(r) => (r as { role?: string }).role === "user" && same((r as { content?: unknown }).content),
 		);
 	}
 	if (role === "toolResult") {
@@ -677,7 +682,7 @@ export class SessionModel {
 		// write-ahead will persist (inputAppends), with LOCAL ids so
 		// adoption can tell them from the record's absorbed copies.
 		const optimistic: LhMessage[] = [];
-		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text), id: localId() });
+		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.images), id: localId() });
 		else if (input.type === "thinking") {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the
@@ -761,11 +766,13 @@ export class SessionModel {
 	 *  settled mid-send (the race): fall back to the plain text send —
 	 *  the entry is dropped and send() pushes its own optimistic card.
 	 */
-	async steer(text: string): Promise<void> {
+	async steer(text: string, images: string[] = []): Promise<void> {
 		const t = text.trim();
-		if (!t) return;
+		if (!t && images.length === 0) return;
 		const id = `steer_${localId()}`;
-		this.steerQueueValue = [...this.steerQueueValue, { id, text: t }];
+		// Fork: images ride along (docs/images.md); the queued line names them when there is no text.
+		const withImages = images.length > 0 ? { images } : {};
+		this.steerQueueValue = [...this.steerQueueValue, { id, text: t || imagesLabel(images.length) }];
 		this.onChange?.();
 		const dropSteer = () => {
 			this.steerQueueValue = this.steerQueueValue.filter((s) => s.id !== id);
@@ -775,12 +782,12 @@ export class SessionModel {
 			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "steer", id, text: t } }),
+				body: JSON.stringify({ input: { type: "steer", id, text: t, ...withImages } }),
 			});
 			if (res.ok) return; // parked or delivered — the stream lands the card
 			if (res.status === 409) {
 				dropSteer();
-				await this.send({ type: "text", text: t }); // the settle race: plain send
+				await this.send({ type: "text", text: t, ...withImages }); // the settle race: plain send
 				return;
 			}
 			dropSteer();

@@ -13,6 +13,8 @@ import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import { imagesLabel, sessionStartPath } from "@/src/core";
+import { useComposerImages, type ComposerImages } from "@/components/attachments/use-composer-images";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -45,9 +47,12 @@ export async function startDraftSession(
 	fetchLike: typeof fetch,
 	mode?: "practice",
 	picks?: readonly DraftPick[],
+	images: readonly string[] = [],
 ): Promise<string | null> {
 	const t = text.trim();
-	if (!t) return null;
+	if (!t && images.length === 0) return null;
+	// Fork: a session may start from images alone (docs/images.md).
+	const title = t || imagesLabel(images.length);
 	// THE PICKS RIDE THE CREATE (owner round 10): a practice draft seeded
 	// from the pick bar creates its session WITH the graph context — the
 	// same contract as the home screen's practice send (the marker with
@@ -57,14 +62,14 @@ export async function startDraftSession(
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(
 			mode === "practice"
-				? { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-				: { title: t },
+				? { title, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+				: { title },
 		),
 	});
 	const { id } = (await res.json()) as { id: string };
 	// No settings PUT on create (per-session models, owner 2026-09-28):
 	// the SERVER stamps the newborn from the strong slot.
-	return `/chat/${id}?prompt=${encodeURIComponent(t)}`;
+	return sessionStartPath(id, t, images);
 }
 
 /** The pure shell (no router) — the render-test seam: the draft view's
@@ -83,6 +88,7 @@ export function DraftShell({
 	onOpenPicker,
 	onClearPicks,
 	overlay,
+	images,
 }: {
 	busy: boolean;
 	text: string;
@@ -109,6 +115,8 @@ export function DraftShell({
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
+	/** Fork: attached images (docs/images.md). */
+	images?: ComposerImages;
 }) {
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
@@ -126,7 +134,7 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = text.trim().length > 0 || dictation.active;
+	const canSend = text.trim().length > 0 || dictation.active || (images?.items.length ?? 0) > 0;
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -206,6 +214,7 @@ export function DraftShell({
 										// started yet, so the composer must not read like one is in
 										// flight.
 										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										images={images}
 									/>
 								</div>
 								<StatsBar
@@ -285,9 +294,11 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const strongKeyless = useStrongKeyless();
 	const [setupOpen, setSetupOpen] = useState(false);
 
+	const images = useComposerImages();
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
-		if (!draft || busy) return;
+		const attached = images.names();
+		if ((!draft && attached.length === 0) || busy || images.isUploading()) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -302,13 +313,13 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			return;
 		}
 		setBusy(true);
-		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined)
+		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined, attached)
 			.then((target) => {
 				if (target) router.push(target);
 				else setBusy(false);
 			})
 			.catch(() => setBusy(false));
-	}, [busy, router, configured, zeroKeys, strongKeyless]);
+	}, [busy, router, configured, zeroKeys, strongKeyless, images]);
 
 	return (
 		<>
@@ -321,6 +332,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
+				images={images}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

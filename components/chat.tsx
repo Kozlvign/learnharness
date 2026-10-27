@@ -23,6 +23,8 @@ import { AnsweredCard } from "@/components/answered-card";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
+import { MessageImages } from "@/components/attachments/composer-images";
+import { useComposerImages } from "@/components/attachments/use-composer-images";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
@@ -199,6 +201,7 @@ export function Chat({
 	initialMessages,
 	initialError,
 	initialPrompt,
+	initialImages,
 	initiallyInFlight,
 	initiallyCompacting = false,
 	initialConfigured = false,
@@ -214,6 +217,8 @@ export function Chat({
 	 *  tag rides the header instead. */
 	kind?: "teach" | "practice";
 	initialPrompt?: string;
+	/** Fork: images sent with the first message (docs/images.md). */
+	initialImages?: string[];
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
 	initiallyInFlight?: boolean;
@@ -252,11 +257,11 @@ export function Chat({
 	// (initialPromptOwed — the pure gate, pinned in the test suite).
 	const sentInitial = useRef(false);
 	useEffect(() => {
-		if (!sentInitial.current && initialPromptOwed(initialMessages, initialPrompt)) {
+		if (!sentInitial.current && initialPromptOwed(initialMessages, initialPrompt, initialImages)) {
 			sentInitial.current = true;
-			void send({ type: "text", text: initialPrompt! });
+			void send({ type: "text", text: initialPrompt ?? "", ...(initialImages?.length ? { images: initialImages } : {}) });
 		}
-	}, [initialPrompt, initialMessages, send]);
+	}, [initialPrompt, initialImages, initialMessages, send]);
 
 	// A turn running server-side, attached to no live view of ours (navigate
 	// away mid-turn, or a wake turn discovered mid-session): the reattach
@@ -681,8 +686,10 @@ export function Chat({
 	// server's registry mutex is the structural gate; this is the
 	// affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
+	// Fork: attached images (docs/images.md); a message may be images alone.
+	const images = useComposerImages({ enabled: !pending && !activeProblem && !compacting });
 	const canSend =
-		(text.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting;
+		(text.trim().length > 0 || dictation.active || images.items.length > 0) && !pending && !activeProblem && !compacting;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1144,10 +1151,12 @@ export function Chat({
 	const doSend = () => {
 		if (busy || pending || compacting) return;
 		const t = textRef.current.trim();
-		if (!t) return;
+		const attached = images.names();
+		if (!t && attached.length === 0) return;
 		draftRef.current = t; // the refusal flow's preserve-and-replay seam
 		applyText("");
-		void send({ type: "text", text: t });
+		images.clear();
+		void send({ type: "text", text: t, ...(attached.length > 0 ? { images: attached } : {}) });
 	};
 
 	/* STEER VS SEND (owner arc 2026-10-03): a send while a turn runs steers
@@ -1160,12 +1169,15 @@ export function Chat({
 	 * time the send's POST resolved, so the steer lands. Idle takes the
 	 * plain send; a raced settle 409s and falls back to exactly that. */
 	const doSteerOrSend = () => {
-		if (pending || compacting) return;
+		// Fork: images still attaching hold the send; the tray shows them working.
+		if (pending || compacting || images.isUploading()) return;
 		const t = textRef.current.trim();
-		if (!t) return;
+		const attached = images.names();
+		if (!t && attached.length === 0) return;
 		if (busy) {
 			applyText("");
-			void steer(t);
+			images.clear();
+			void steer(t, attached);
 			return;
 		}
 		doSend();
@@ -1435,6 +1447,7 @@ export function Chat({
 												    sits INSIDE the rail, same mono-xs register and same 1ch
 												    rail as the thinking rows — one quote geometry. */}
 												<div className="font-medium uppercase tracking-wide text-muted-foreground">You</div>
+												<MessageImages parts={m.parts} />
 												<div className="lh-prose whitespace-pre-wrap text-foreground">
 													{m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}
 												</div>
@@ -1655,6 +1668,7 @@ export function Chat({
 							nextProblem={nextReady}
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
+							images={images}
 						/>
 					}
 					onSubmitAnswer={(output) => {
@@ -1765,8 +1779,8 @@ export type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "proble
  * (owner report, 2026-10-04: the turn went dead behind it — the old
  * `length === 0` check saw the marker and refused to fire).
  */
-export function initialPromptOwed(messages: readonly { role: string }[], prompt: string | undefined): boolean {
-	if (!prompt) return false;
+export function initialPromptOwed(messages: readonly { role: string }[], prompt: string | undefined, images?: readonly string[]): boolean {
+	if (!prompt && !images?.length) return false;
 	return !messages.some((m) => m.role === "user" || m.role === "assistant");
 }
 
