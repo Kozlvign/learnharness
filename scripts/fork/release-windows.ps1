@@ -38,7 +38,10 @@ param(
     # Do not translate new interface text (it stays in English until the next run).
     [switch]$NoTranslate,
     # The fork on GitHub.
-    [string]$Repository = 'Kozlvign/learnharness'
+    [string]$Repository = 'Kozlvign/learnharness',
+    # Write the outcome here as JSON (ok, version, installer, message, log).
+    # auto-update.ps1 reads it.
+    [string]$ResultFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,7 +81,17 @@ function Invoke-GitStatus([string[]]$Arguments) {
 }
 
 $exitCode = 0
+# Outcome for -ResultFile: the newest fork version and its installer, when built here.
+$resultVersion = $null
+$resultInstaller = $null
+$resultMessage = $null
+# One release at a time on this computer, whichever checkout it runs from:
+# two runs would build the same next version and race to publish it.
+$releaseLock = New-Object System.Threading.Mutex($false, 'Local\LearnHarness-fork-release')
+$haveLock = $false
 try {
+    try { $haveLock = $releaseLock.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $haveLock = $true }
+    if (-not $haveLock) { throw 'Another LearnHarness release is already running on this computer.' }
     foreach ($tool in 'git', 'node', 'npm', 'gh') {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool was not found in PATH." }
     }
@@ -117,6 +130,9 @@ try {
         $changed = @(Invoke-Git @('diff', '--name-only', "$lastTag..HEAD") | Where-Object { $_ -and $_ -notmatch '^(scripts/fork/|docs/|README\.md$)' })
         if ($changed.Count -eq 0) {
             Write-Host "The app has not changed since $lastTag. No new release is needed."
+            $resultVersion = $lastTag.Substring(1)
+            $lastInstaller = Join-Path $repo "dist\LearnHarness-$resultVersion-x64-setup.exe"
+            if (Test-Path -LiteralPath $lastInstaller) { $resultInstaller = $lastInstaller }
             return
         }
     }
@@ -162,15 +178,17 @@ try {
         Invoke-Git @('tag', '-a', $tag, '-m', "LearnHarness $version (Claude fork of upstream $upstreamVersion)") | Out-Null
         Invoke-Git @('push', '--quiet', 'origin', 'main', $tag) | Out-Null
         $assets = @($installer, "$installer.blockmap", (Join-Path $repo 'dist\latest.yml'))
-        $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in), a Brazilian Portuguese interface and tutor (Settings > General > Language), and images in messages (paste, drop or attach them). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
+        $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in), a Brazilian Portuguese interface and tutor (Settings > General > Language), images in messages (paste, drop or attach them), and local dictation in Portuguese and English with no key (Settings > Providers > Dictation). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
         Native 'gh' (@('release', 'create', $tag) + $assets + @('--repo', $Repository, '--title', "LearnHarness $version", '--notes', $notes, '--latest'))
         Write-Host "Published https://github.com/$Repository/releases/tag/$tag"
     }
+    $resultVersion = $version
+    $resultInstaller = $installer
 
     if ($Install) {
         Step 'Installing'
         if (Get-Process -Name 'LearnHarness' -ErrorAction SilentlyContinue) {
-            Write-Host 'LearnHarness is running, so it was not reinstalled now. It updates itself from the release when it next checks.' -ForegroundColor Yellow
+            Write-Host 'LearnHarness is running, so it was not reinstalled now. The desktop icon installs it when you next open the app; the app also updates itself from the release.' -ForegroundColor Yellow
         } else {
             $process = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
             if ($process.ExitCode -ne 0) { throw "The installer exited with code $($process.ExitCode)." }
@@ -180,10 +198,16 @@ try {
 } catch {
     Write-Host ''
     Write-Host $_.Exception.Message -ForegroundColor Red
+    $resultMessage = $_.Exception.Message
     $exitCode = 1
 } finally {
-    try { & git.exe checkout -- next-env.d.ts 2>$null } catch { }
+    if ($haveLock) { try { & git.exe checkout -- next-env.d.ts 2>$null } catch { } }
+    if ($haveLock) { $releaseLock.ReleaseMutex() }
     Stop-Transcript | Out-Null
     Write-Host "Log: $log"
+    if ($ResultFile) {
+        $result = [ordered]@{ ok = ($exitCode -eq 0); version = $resultVersion; installer = $resultInstaller; message = $resultMessage; log = $log }
+        [IO.File]::WriteAllText($ResultFile, ($result | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+    }
 }
 exit $exitCode
