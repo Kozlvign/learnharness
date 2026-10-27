@@ -11,7 +11,7 @@
        publish a fork release when the app changed, and install it when the
        app is closed.
     3. It records the outcome in %LOCALAPPDATA%\LearnHarness-fork\state.json
-       for the desktop launcher (launcher.ps1): a build in progress, the
+       for the desktop launcher (launcher.cs): a build in progress, the
        newest version built here and its installer, or why it failed.
     The state survives restarts, so the same commits are never built twice:
     after a finished run, only new commits on either branch start another.
@@ -117,6 +117,10 @@ try {
         if (Test-Path -LiteralPath $logs) {
             Get-ChildItem -LiteralPath $logs -Filter 'release-*.log' | Sort-Object LastWriteTime -Descending | Select-Object -Skip $keepLogs | Remove-Item -Force -ErrorAction SilentlyContinue
         }
+        # Changes to launcher.cs reach the desktop icon here. A running
+        # launcher is locked; the next run replaces it.
+        try { & (Join-Path $PSScriptRoot 'build-launcher.ps1') -OutDir (Join-Path $StateDir 'launcher') -IfChanged }
+        catch { Write-Host "The desktop launcher was not rebuilt: $($_.Exception.Message)" }
     }
 } catch {
     # Fetch failures (offline) land here too; the next run tries again.
