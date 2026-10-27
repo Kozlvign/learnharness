@@ -4,7 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
-import { dictationLanguageQuery } from "@/components/i18n/language-provider";
+// Fork: local dictation (docs/dictation.md).
+import { LocalModelPrompt } from "@/components/dictation-local/model-prompt";
+import {
+	deepgramLanguageQuery,
+	DICTATION_MODEL_MISSING,
+	dictationBlocked,
+	dictationServiceName,
+	dictationStopTimeoutMs,
+	mintDictationToken,
+	onDictationEngineChange,
+	openDictationSocket,
+} from "@/components/dictation-local/store";
 
 /**
  * Voice dictation — the cloud engine (STT wave 1, 2026-09-17).
@@ -122,6 +133,10 @@ export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
  *  dev-speak, so the error becomes the short client-authored line
  *  (zero-keys wave, owner 2026-09-25). */
 async function mintFreshToken(): Promise<string> {
+	return mintDictationToken(mintDeepgramToken); // Fork: the chosen engine (docs/dictation.md)
+}
+
+async function mintDeepgramToken(): Promise<string> {
 	const res = await fetch("/api/stt/token");
 	const data = (await res.json()) as { token?: string; message?: string };
 	if (!res.ok || !data.token) {
@@ -168,6 +183,8 @@ export function createWarmMinter(
 }
 
 const warmTokens = createWarmMinter(mintFreshToken);
+// Fork: a warm token belongs to one engine (docs/dictation.md).
+onDictationEngineChange(() => warmTokens.refresh());
 
 /* Persistent capture graph (mitigation C, owner 2026-09-27): one
  * app-lifetime AudioContext + a module-load memo. Created under the
@@ -367,7 +384,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			// Minted JWTs authenticate via the "bearer" subprotocol — ["token",
 			// jwt] is rejected at the handshake (verified live; "token" is for
 			// raw API keys only, as in the owner's pi dictate extension).
-			const ws = new WebSocket(DG_URL + dictationLanguageQuery(), ["bearer", token]);
+			const ws = openDictationSocket(DG_URL + deepgramLanguageQuery(), token); // Fork: Deepgram or local
 			wsRef.current = ws;
 
 			ws.addEventListener("open", () => {
@@ -413,12 +430,12 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 						})
 						.catch(() => {
 							if (gen === genRef.current) {
-								setError("Deepgram reconnect failed");
+								setError(`${dictationServiceName()} reconnect failed`);
 								cleanup();
 							}
 						});
 				} else {
-					setError(`Deepgram connection lost (${ev.code})`);
+					setError(`${dictationServiceName()} connection lost (${ev.code})`);
 					cleanup();
 				}
 			});
@@ -539,7 +556,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			// does, the safety net ends the run anyway (dictate pattern).
 			safetyRef.current = setTimeout(() => {
 				if (gen === genRef.current) cleanup();
-			}, 3000);
+			}, dictationStopTimeoutMs()); // Fork: the local engine may still be transcribing
 		} else {
 			cleanup();
 		}
@@ -576,8 +593,12 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	}, [finish]);
 
 	const toggle = useCallback(() => {
-		if (phase === "idle") void start();
-		else if (phase === "recording" || phase === "connecting") stop();
+		if (phase === "idle") {
+			// Fork: no microphone for a run that cannot start (docs/dictation.md).
+			const blocked = dictationBlocked();
+			if (blocked) setError(blocked);
+			else void start();
+		} else if (phase === "recording" || phase === "connecting") stop();
 		// "stopping" presses are ignored — the flush is in flight.
 	}, [phase, start, stop]);
 
@@ -673,6 +694,8 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 	}, [active]);
 
 	if (!active) {
+		// Fork: the local model is missing — ask to download it (docs/dictation.md).
+		if (error === DICTATION_MODEL_MISSING) return <LocalModelPrompt onDismiss={clearError} />;
 		return (
 			<Hint
 				// Errored: the button span truncates the line — the tooltip is its

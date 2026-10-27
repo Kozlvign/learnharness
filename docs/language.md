@@ -7,7 +7,7 @@ Open **Settings → General**:
 - **Language** sets the interface: menus, buttons, settings, status lines and error messages. The change applies at once, without a restart.
 - **Tutor language** sets what the tutor writes in: lessons, questions and answer options, hints, feedback, plans, research and PDF briefs, figures and demos, and the names of concepts in the knowledge graph. **Same as the app** (the default) follows the interface. Pick a language to teach in something else, for example a Portuguese interface with an English tutor. The tutor switches on its next reply.
 
-Dictation follows the tutor language, so speech is transcribed in the language you speak to the tutor (Deepgram `nova-3` with `language=pt-BR`).
+Dictation detects the language you speak, with the local model and with Deepgram alike (see [dictation.md](dictation.md)).
 
 Your own messages, the tutor's prose, code, math and diagrams are never translated by the interface. Names you or the tutor gave, such as session titles and graph nodes, are only translated when they exactly match an interface phrase. When the subject you study is itself a language, the tutor keeps the material in that language and explains it in yours.
 
@@ -21,7 +21,7 @@ LearnHarness's components are written in English, and upstream changes them seve
 - **Tutor.** `src/agent/models.ts` passes every model call through `withTutorLanguage` (`src/agent/language.ts`). It adds a short `<learner_language>` note (`src/core/i18n/tutor.ts`) to the end of the system prompt, for the teacher, prober, helper agents and compaction alike, and with every provider, including the Claude connection. The prompts stay in English, the language they were tuned in. In English nothing is added, so requests are identical to upstream's.
 - **Storage.** The choice is kept in `<data>/language.json`, beside upstream's settings record, so upstream's settings schema is untouched. `GET/PUT /api/language` reads and changes it.
 
-Upstream files touched: `app/layout.tsx` (boot script and runtime), `components/settings/settings-dialog.tsx` (the settings rows), `src/agent/models.ts` (one line), `components/dictation.tsx` (one line) and `src/server/index.ts` (an export).
+Upstream files touched: `app/layout.tsx` (boot script and runtime), `components/settings/settings-dialog.tsx` (the settings rows), `src/agent/models.ts` (one line) and `src/server/index.ts` (an export).
 
 ## Keeping Portuguese complete
 

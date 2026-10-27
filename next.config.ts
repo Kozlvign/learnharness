@@ -81,6 +81,12 @@ const nextConfig: NextConfig = {
 			// Wave E stage 2: resvg rasterizes visual-maker SVGs natively; same
 			// per-platform-binary story as the canvas above (one per build).
 			"node_modules/@resvg/resvg-js-*/**/*",
+			// Fork (local dictation): the dictation worker loads sherpa-onnx-node
+			// by path at run time, so the tracer never sees it. The platform
+			// package (sherpa-onnx-<platform>-<arch>, the .node and onnxruntime)
+			// is installed per OS, like the canvas and resvg binaries above.
+			"node_modules/sherpa-onnx-node/**/*",
+			"node_modules/sherpa-onnx-*/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/providers/data/**/*",
 			// Public native OAuth factories load these flows through variable imports.
 			// Electron main uses the same standalone SDK; the offline runtime gate
@@ -111,6 +117,8 @@ const nextConfig: NextConfig = {
 		// in-process MCP server must share one MCP SDK instance.
 		"@anthropic-ai/claude-agent-sdk",
 		"@modelcontextprotocol/sdk",
+		// Fork (local dictation): native binding.
+		"sherpa-onnx-node",
 	],
 };
 

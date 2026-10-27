@@ -20,7 +20,6 @@ import {
 	LOCALE_COOKIE,
 	LOCALE_STORAGE_KEY,
 	parseLanguageSettings,
-	tutorLocale,
 	type LanguageSettings,
 	type Locale,
 	type Translator,
@@ -93,13 +92,6 @@ function accept(settings: LanguageSettings) {
 async function readSettings(response: Response): Promise<LanguageSettings> {
 	if (!response.ok) throw new Error(`status ${response.status}`);
 	return parseLanguageSettings(((await response.json()) as { settings?: unknown }).settings);
-}
-
-/** Deepgram's language for dictation: the language the learner speaks with the tutor. */
-export function dictationLanguageQuery(): string {
-	const settings = snapshot.settings;
-	const locale = settings ? tutorLocale(settings) : applied.locale;
-	return locale === DEFAULT_LOCALE ? "" : `&language=${encodeURIComponent(locale)}`;
 }
 
 export function LanguageRuntime() {
