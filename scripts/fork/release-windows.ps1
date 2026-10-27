@@ -6,8 +6,11 @@
 .DESCRIPTION
     1. Merges upstream/main into main (stops on conflicts, changing nothing).
     2. Skips everything when nothing changed since the last fork release.
-    3. Builds and checks the app the way upstream's release workflow does.
-    4. Tags the commit and publishes the installer, blockmap and latest.yml as
+    3. Translates new upstream interface text into Brazilian Portuguese with
+       your Claude Code (scripts/fork/i18n/sync.ts) and commits the catalog.
+       Untranslated text just stays in English, so a failure here only warns.
+    4. Builds and checks the app the way upstream's release workflow does.
+    5. Tags the commit and publishes the installer, blockmap and latest.yml as
        a GitHub release of the fork. Installed copies then update themselves.
 
     Fork versions encode the upstream version and a fork revision in the patch
@@ -32,6 +35,8 @@ param(
     [switch]$Install,
     # Release even when nothing changed since the last fork release.
     [switch]$Force,
+    # Do not translate new interface text (it stays in English until the next run).
+    [switch]$NoTranslate,
     # The fork on GitHub.
     [string]$Repository = 'Kozlvign/learnharness'
 )
@@ -125,10 +130,21 @@ try {
     Native 'npm' @('ci', '--no-audit', '--no-fund')
     if (-not (Test-Path -LiteralPath (Join-Path $repo 'node_modules\electron\dist\electron.exe'))) { Native 'node' @('node_modules/electron/install.js') }
 
+    if (-not $NoTranslate) {
+        Step 'Translating new interface text'
+        $catalog = 'src/core/i18n/catalog/pt-BR.json'
+        try { Native 'npx' @('tsx', 'scripts/fork/i18n/sync.ts') } catch { Write-Host "Some interface text stays in English for now: $($_.Exception.Message)" -ForegroundColor Yellow }
+        if (Invoke-Git @('status', '--porcelain', '--', $catalog)) {
+            Invoke-Git @('add', '--', $catalog) | Out-Null
+            Invoke-Git @('commit', '--quiet', '-m', 'chore(i18n): translate new interface text into Portuguese') | Out-Null
+            Write-Host 'Committed the updated Portuguese catalog.'
+        }
+    }
+
     Step 'Checking'
     Native 'npx' @('tsc', '--noEmit')
     $env:NODE_ENV = 'test'
-    try { Native 'npx' @('tsx', '--test', 'tests/claude-code-bridge.test.ts') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
+    try { Native 'npx' @('tsx', '--test', 'tests/claude-code-bridge.test.ts', 'tests/i18n.test.ts') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
 
     Step 'Building'
     Native 'npm' @('run', 'build')
@@ -145,7 +161,7 @@ try {
         Invoke-Git @('tag', '-a', $tag, '-m', "LearnHarness $version (Claude fork of upstream $upstreamVersion)") | Out-Null
         Invoke-Git @('push', '--quiet', 'origin', 'main', $tag) | Out-Null
         $assets = @($installer, "$installer.blockmap", (Join-Path $repo 'dist\latest.yml'))
-        $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
+        $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in) and a Brazilian Portuguese interface and tutor (Settings > General > Language). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
         Native 'gh' (@('release', 'create', $tag) + $assets + @('--repo', $Repository, '--title', "LearnHarness $version", '--notes', $notes, '--latest'))
         Write-Host "Published https://github.com/$Repository/releases/tag/$tag"
     }

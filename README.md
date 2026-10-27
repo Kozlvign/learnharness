@@ -16,6 +16,8 @@
 </p>
 
 > **This fork** adds a **Claude** connection: use Claude models with your Claude Pro or Max plan through your own, unmodified [Claude Code](https://code.claude.com), the way [T3 Code](https://github.com/pingdotgg/t3code) does. Claude Code handles sign-in and keeps the credentials; LearnHarness never sees them. Windows installers are on [this fork's releases](https://github.com/Kozlvign/learnharness/releases) and update from there. See [docs/claude-code.md](docs/claude-code.md).
+>
+> It also adds a **Brazilian Portuguese** interface and tutor: **Settings → General → Language**. See [docs/language.md](docs/language.md).
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 

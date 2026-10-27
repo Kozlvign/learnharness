@@ -54,6 +54,8 @@ export type { ChatGPTStatus, ChatGPTControlBridge } from "./contracts/chatgpt.ts
 export { NATIVE_SUBSCRIPTIONS } from "./contracts/subscriptions.ts";
 export { CLAUDE_CODE_API, CLAUDE_CODE_INSTALL_URL, CLAUDE_CODE_LABEL, CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 export type { ClaudeCodeAccount, ClaudeCodeControl, ClaudeCodeModelSummary, ClaudeCodeState, ClaudeCodeStatus, ClaudeCodeUsageWindow } from "./contracts/claude-code.ts";
+// Fork: interface and tutor language (docs/language.md).
+export * from "./i18n/index.ts";
 export type { NativeSubscriptionProviderId, NativeSubscriptionLogicalId, NativeSubscriptionStatus, NativeSubscriptionSnapshot, NativeSubscriptionScope, NativeSubscriptionControlBridge, SubscriptionInteraction, SubscriptionPrompt } from "./contracts/subscriptions.ts";
 export * from "./cost-summary.ts";
 export * from "./fuzzy.ts";

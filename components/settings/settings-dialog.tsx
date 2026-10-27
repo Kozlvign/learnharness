@@ -53,6 +53,7 @@ import { KeyboardSection } from "./keyboard-section.tsx";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 import { ClaudeCodeUIProvider } from "./claude-code-connection.tsx";
+import { LanguageSettings } from "@/components/i18n/language-settings";
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
@@ -361,6 +362,7 @@ export function SettingsDialogBody({
 									title="General"
 									testid="section-general"
 								>
+									<LanguageSettings />
 									<UpdateSettings
 										autoUpdate={record.general?.autoUpdate ?? true}
 										onAutoUpdateChange={(on) =>

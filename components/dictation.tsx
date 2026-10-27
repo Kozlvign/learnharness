@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
+import { dictationLanguageQuery } from "@/components/i18n/language-provider";
 
 /**
  * Voice dictation — the cloud engine (STT wave 1, 2026-09-17).
@@ -366,7 +367,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			// Minted JWTs authenticate via the "bearer" subprotocol — ["token",
 			// jwt] is rejected at the handshake (verified live; "token" is for
 			// raw API keys only, as in the owner's pi dictate extension).
-			const ws = new WebSocket(DG_URL, ["bearer", token]);
+			const ws = new WebSocket(DG_URL + dictationLanguageQuery(), ["bearer", token]);
 			wsRef.current = ws;
 
 			ws.addEventListener("open", () => {
