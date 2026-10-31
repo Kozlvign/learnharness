@@ -51,6 +51,7 @@ import {
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { isPluginQuestionJson, type JsonValue, type PluginQuestionOccurrence } from "./plugin-questions.ts";
 import { preparePluginProblemSubmissionImages, type PluginProblemSubmissionImages } from "./plugin-submissions.ts";
+import { MAX_IMAGES_PER_MESSAGE, parseImageList } from "./attachments.ts";
 
 export type PluginQuestionAnswerInput = { type: "plugin-question-answer"; questionId: string; occurrence: PluginQuestionOccurrence; answer: JsonValue; thinking?: string; readingThinking?: string; images?: PluginSubmissionImages };
 export type PluginProblemSubmissionInput = { type: "plugin-problem-submission"; problemId: string; occurrence: PluginSubmissionOccurrence; submission: JsonValue; thinking?: string; images?: PluginProblemSubmissionImages };
@@ -60,7 +61,8 @@ export type DismissPluginQuestionInput = { type: "dismiss-plugin-question"; ques
 export type ChatInput =
 	| PluginQuestionAnswerInput
 	| PluginProblemSubmissionInput
-	| { type: "text"; text: string; images?: ImageContent[] }
+	/** Fork: `attachments` are the learner's attached images by name (docs/images.md); with them the text may be empty. */
+	| { type: "text"; text: string; images?: ImageContent[]; attachments?: string[] }
 	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData; occurrence?: PluginSubmissionOccurrence }
 	| { type: "continue" }
 	/** The failed-turn retry (issue #110): the banner's Retry button. */
@@ -137,7 +139,7 @@ export function parseDismissInput(input: unknown): DismissInput {
  *  (a send with no live turn is a plain text send, which already exists).
  *  The id is client-minted (steer_<localid>): the queued indicator keys on
  *  it, and the drain's message events upsert the real card by the same id. */
-export type UserSteerInput = { type: "steer"; id: string; text: string; images?: ImageContent[] };
+export type UserSteerInput = { type: "steer"; id: string; text: string; images?: ImageContent[]; attachments?: string[] };
 
 /** Parse and validate a steer event off a request body. */
 export function parseUserSteerInput(input: unknown): UserSteerInput {
@@ -148,10 +150,18 @@ export function parseUserSteerInput(input: unknown): UserSteerInput {
 		throw new ChatInputError("steer input requires a client-minted id");
 	}
 	const images = parseImages(i.images);
-	if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+	const attachments = parsedAttachments(i.attachments, "steer");
+	if (typeof i.text !== "string" || (!i.text.trim() && !images && attachments.length === 0)) {
 		throw new ChatInputError("steer input requires non-empty text or images");
 	}
-	return { type: "steer", id: i.id, text: i.text, ...(images ? { images } : {}) };
+	return { type: "steer", id: i.id, text: i.text, ...(images ? { images } : {}), ...(attachments.length > 0 ? { attachments } : {}) };
+}
+
+/** Fork: a send's attached images (docs/images.md). */
+function parsedAttachments(value: unknown, kind: string): string[] {
+	const attachments = parseImageList(value);
+	if (attachments === null) throw new ChatInputError(`${kind} input's attachments must be distinct attachment names, at most ${MAX_IMAGES_PER_MESSAGE}`);
+	return attachments;
 }
 
 /** The native appends a dismissal makes (pure — same orphan discipline
@@ -241,10 +251,11 @@ export function parseChatInput(input: unknown): ChatInput {
 		}
 		case "text": {
 			const images = parseImages(i.images);
-			if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+			const attachments = parsedAttachments(i.attachments, "text");
+			if (typeof i.text !== "string" || (!i.text.trim() && !images && attachments.length === 0)) {
 				throw new ChatInputError("text input requires non-empty text or images");
 			}
-			return { type: "text", text: i.text, ...(images ? { images } : {}) };
+			return { type: "text", text: i.text, ...(images ? { images } : {}), ...(attachments.length > 0 ? { attachments } : {}) };
 		}
 		case "answer": {
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
@@ -308,7 +319,7 @@ export function inputAppends(
 		case "plugin-question-answer":
 			throw new ChatInputError("Plugin question answers require canonical server validation");
 		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text, input.images)];
+			return [...dismissalConclusion(record), newUserMessage(input.text, input.images, input.attachments)];
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {

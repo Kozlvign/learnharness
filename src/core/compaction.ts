@@ -39,6 +39,7 @@ import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
 import { newMessageId } from "./native-messages.ts";
+import { attachmentsOf } from "./attachments.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, Model, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
 
@@ -332,7 +333,13 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
 		if (role === "user") {
-			lines.push(`[LEARNER] ${citationsToReadableText((m as { content: string }).content)}`);
+			// Fork: a message with attached images is a block list (docs/images.md).
+			const content = (m as { content: unknown }).content;
+			const images = attachmentsOf(content).length;
+			const text = typeof content === "string"
+				? content
+				: (content as Array<{ type?: string; text?: string }>).filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
+			lines.push(`[LEARNER] ${images > 0 ? `(attached ${images === 1 ? "an image" : `${images} images`}) ` : ""}${citationsToReadableText(text)}`);
 		} else if (role === "assistant") {
 			const assistant = m as AssistantMessage;
 			const blocks: string[] = [];

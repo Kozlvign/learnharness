@@ -51,6 +51,7 @@ import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
 import { expandCitationsForModel } from "./citations.ts";
 import { readPluginQuestionMessageAnnotation, readPluginQuestionAnswer, readPluginQuestionCancellation, samePluginQuestionOccurrence, type PluginQuestionAnnotationRead, type PluginQuestionOccurrence, type PluginQuestionOccurrenceMap, type PluginQuestionSnapshot } from "./plugin-questions.ts";
+import { userContent } from "./attachments.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -222,11 +223,13 @@ export function nativeAnswerContent(answerText: string, images?: PluginSubmissio
 	return content;
 }
 
-export function newUserMessage(text: string, images?: readonly ImageContent[]): LhMessage & UserMessage {
+/** Fork: with attached images (`attachments`, docs/images.md), they lead the
+ *  content, then the text. */
+export function newUserMessage(text: string, images?: readonly ImageContent[], attachments?: readonly string[]): LhMessage & UserMessage {
 	return {
 		id: newMessageId(),
 		role: "user",
-		content: nativeInlineImageContent(text, images),
+		content: userContent(nativeInlineImageContent(text, images), attachments),
 		timestamp: Date.now(),
 	};
 }
@@ -236,8 +239,8 @@ export function newUserMessage(text: string, images?: readonly ImageContent[]): 
  *  rides agent.steer(), the live stream's message events, and the settled
  *  record, so the optimistic queued indicator and the transcript card
  *  upsert by one identity. */
-export function newUserSteer(text: string, id: string, images?: readonly ImageContent[]): LhMessage & UserMessage {
-	return { id, role: "user", content: nativeInlineImageContent(text, images), timestamp: Date.now() };
+export function newUserSteer(text: string, id: string, images?: readonly ImageContent[], attachments?: readonly string[]): LhMessage & UserMessage {
+	return { id, role: "user", content: userContent(nativeInlineImageContent(text, images), attachments), timestamp: Date.now() };
 }
 
 /** The learner's answer — the question call's tool result (fork 1).

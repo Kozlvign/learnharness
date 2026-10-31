@@ -21,6 +21,7 @@ import {
 	activeProblemOccurrenceOf,
 	pendingQuestionOf,
 	failedResponseAtEnd,
+	imagesLabel,
 	measuredContextTokens,
 	newAnswerResult,
 	newNextMessage,
@@ -926,7 +927,7 @@ export class SessionModel {
 		// write-ahead will persist (inputAppends), with LOCAL ids so
 		// adoption can tell them from the record's absorbed copies.
 		const optimistic: LhMessage[] = [];
-		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.images), id: localId() });
+		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.images, input.attachments), id: localId() });
 		else if (input.type === "thinking") {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the
@@ -1058,14 +1059,17 @@ export class SessionModel {
 	 *  settled mid-send (the race): fall back to the plain text send —
 	 *  the entry is dropped and send() pushes its own optimistic card.
 	 */
-	async steer(text: string, images?: import("../src/core/plugin-submissions.ts").PluginSubmissionContent["images"], onAccepted?: () => void, onDeliverySettled?: () => void): Promise<boolean> {
+	// Fork: `attachments` are the learner's attached images by name (docs/images.md).
+	async steer(text: string, images?: import("../src/core/plugin-submissions.ts").PluginSubmissionContent["images"], onAccepted?: () => void, onDeliverySettled?: () => void, attachments: string[] = []): Promise<boolean> {
 		let deliverySettled = false;
 		const settleDelivery = () => { if (!deliverySettled) { deliverySettled = true; onDeliverySettled?.(); } };
 		const t = text.trim();
-		if (!t && !images?.length) { settleDelivery(); return false; }
+		if (!t && !images?.length && attachments.length === 0) { settleDelivery(); return false; }
 		this.invalidateCanonicalReads();
 		const id = `steer_${localId()}`;
-		this.steerQueueValue = [...this.steerQueueValue, { id, text: t }];
+		// Fork: attached images ride along (docs/images.md); the queued line names them when there is no text.
+		const withAttachments = attachments.length > 0 ? { attachments } : {};
+		this.steerQueueValue = [...this.steerQueueValue, { id, text: t || (attachments.length > 0 ? imagesLabel(attachments.length) : "") }];
 		this.onChange?.();
 		const dropSteer = () => {
 			this.steerQueueValue = this.steerQueueValue.filter((s) => s.id !== id);
@@ -1075,12 +1079,12 @@ export class SessionModel {
 			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "steer", id, text: t, ...(images?.length ? { images } : {}) } }),
+				body: JSON.stringify({ input: { type: "steer", id, text: t, ...(images?.length ? { images } : {}), ...withAttachments } }),
 			});
 			if (res.ok) { this.invalidateCanonicalReads(); onAccepted?.(); settleDelivery(); await res.text().catch(() => {}); return true; } // parked or delivered — the stream lands the card
 			if (res.status === 409) {
 				dropSteer();
-				return await this.send({ type: "text", text: t, ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}) }, onAccepted, undefined, settleDelivery); // reuse the prepared payload
+				return await this.send({ type: "text", text: t, ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}), ...withAttachments }, onAccepted, undefined, settleDelivery); // reuse the prepared payload
 			}
 			dropSteer();
 			settleDelivery();

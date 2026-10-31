@@ -7,6 +7,8 @@ import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
+import { AttachImagesButton, ComposerImageTray } from "@/components/attachments/composer-images";
+import type { ComposerImages } from "@/components/attachments/use-composer-images";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -61,6 +63,7 @@ export function ChatSessionComposer({
 	nextProblem,
 	onNext,
 	pendingInput = false,
+	images,
 }: {
 	busy: boolean;
 	value: string;
@@ -77,10 +80,12 @@ export function ChatSessionComposer({
 	nextProblem?: boolean;
 	onNext?: () => void;
 	pendingInput?: boolean;
+	/** Fork: attached images (docs/images.md); a message may be images alone. */
+	images?: ComposerImages;
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
-	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive || pendingInput);
+	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive || pendingInput || (images?.items.length ?? 0) > 0);
 	const applyDraft = useCallback((next: string) => {
 		setDraft(next);
 		onChange(next);
@@ -100,6 +105,7 @@ export function ChatSessionComposer({
 			placeholder={placeholder}
 			nextProblem={nextProblem}
 			onNext={onNext}
+			images={images}
 		/>
 	);
 }
@@ -119,6 +125,7 @@ export function Composer({
 	onNext,
 	defaultDropTarget = true,
 	fileInsertion = true,
+	images,
 }: {
 	busy: boolean;
 	value: string;
@@ -147,6 +154,8 @@ export function Composer({
 	/** Neutral plugin composers opt out without changing core defaults. */
 	defaultDropTarget?: boolean;
 	fileInsertion?: boolean;
+	/** Fork: attached images (docs/images.md) — tray, attach button, paste. */
+	images?: ComposerImages;
 }) {
 	const controller = useOptionalInteractionLayers();
 	const act = () => {
@@ -160,18 +169,21 @@ export function Composer({
 	return (
 		<form
 			data-testid="composer"
-			className="flex items-end gap-1.5 p-1.5"
+			className="flex flex-wrap items-end gap-1.5 p-1.5"
 			onSubmit={(e) => {
 				e.preventDefault();
 				act();
 			}}
 		>
+			{images && <ComposerImageTray images={images} />}
+			{images && <AttachImagesButton images={images} />}
 			<PathInput
 				ref={editorRef}
 				value={value}
 				onValueChange={onChange}
 				defaultDropTarget={defaultDropTarget}
 				fileInsertion={fileInsertion}
+				onPaste={images?.onPaste}
 				onKeyDown={(e) => {
 					if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 					// Esc ends dictation before anything else Esc might someday mean

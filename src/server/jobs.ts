@@ -332,7 +332,8 @@ export async function prepareAndSteerChat(chatId: string, input: UserSteerInput)
 	if (!current) return "settled";
 	if (current !== agent || current.state.model !== model || submissionImagePolicyKey({ model }) !== policy) return "stale";
 	// No await may separate the identity/policy check from this registry handoff.
-	return steerLiveChat(chatId, newUserSteer(text, id, images)) ? "accepted" : "settled";
+	// Fork: the learner's attached images ride by name (docs/images.md).
+	return steerLiveChat(chatId, newUserSteer(text, id, images, input.attachments)) ? "accepted" : "settled";
 }
 
 /** Synchronous live handoff. The registry copy preserves the existing
