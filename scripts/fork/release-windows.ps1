@@ -144,13 +144,14 @@ try {
     Step 'Checking'
     Native 'npx' @('tsc', '--noEmit')
     $env:NODE_ENV = 'test'
-    try { Native 'npx' @('tsx', '--test', 'tests/claude-bridge.test.ts', 'tests/i18n.test.ts', 'tests/images.test.tsx') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
+    try { Native 'npx' @('tsx', '--test', 'tests/claude-bridge.test.ts', 'tests/i18n.test.ts', 'tests/images.test.tsx', 'tests/local-dictation.test.tsx') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
 
     Step 'Building'
     Native 'npm' @('run', 'build')
     Native 'node' @('scripts/smoke-provider-runtime.mjs')
     Native 'node' @('scripts/build-server.mjs')
     Native 'node' @('scripts/smoke-server.mjs', '--electron')
+    Native 'node' @('scripts/fork/check-dictation-runtime.mjs')
     Native 'npx' @('electron-builder', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$version")
     $installer = Join-Path $repo "dist\LearnHarness-$version-x64-setup.exe"
     if (-not (Test-Path -LiteralPath $installer)) { throw "The installer was not produced: $installer" }
