@@ -25,6 +25,7 @@ import {
 	type UserSettings,
 } from "../core/settings.ts";
 import type { SettingsStore } from "../core/ports.ts";
+import { migrateClaudeSettings } from "./claude-migration.ts";
 
 /** The persisted record, or null when none exists (first boot). Runs the
  *  migration chain on every read — cheap: a no-op file check when current. */
@@ -46,6 +47,8 @@ export function readSettings(): UserSettings | null {
 	// Version chain (empty today): a future v2 migration slots in here —
 	// `if (record.version > CURRENT_SETTINGS_VERSION) …`. Unknown NEWER
 	// versions pass through untouched (the sanitizer preserved unknowns).
+	// Fork: the Claude connection's models move to its own id (docs/claude.md).
+	if (migrateClaudeSettings(record)) writeSettings(record);
 	return record;
 }
 

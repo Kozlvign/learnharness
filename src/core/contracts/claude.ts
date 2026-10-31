@@ -11,6 +11,25 @@ export const CLAUDE_LABEL = "Claude";
  *  app's own stream function does. */
 export const CLAUDE_API = "claude";
 
+/** Before fork 0.4.001 this connection used the id `claude-code`, which
+ *  upstream's own Claude Code option has now. Saved models move to
+ *  `claude` when they are read (src/store/claude-migration.ts). The fork's
+ *  model ids all start with `claude-` and upstream's (`opus`, `sonnet`,
+ *  `haiku`) don't, so old entries are told apart by their id. Recorded
+ *  responses also carry the old api value, which upstream never used. */
+export const LEGACY_CLAUDE_PROVIDER = "claude-code";
+export const LEGACY_CLAUDE_API = "claude-code";
+
+/** The coordinates with the fork's id, or null when they are not an old entry of this connection. */
+export function migratedClaudeModel(model: { provider: string; id: string }): { provider: string; id: string } | null {
+	return model.provider === LEGACY_CLAUDE_PROVIDER && model.id.startsWith("claude-") ? { provider: CLAUDE_PROVIDER, id: model.id } : null;
+}
+
+/** The same for a provider-qualified key, as usage records keep it ("claude-code:claude-opus"). */
+export function migratedClaudeModelKey(key: string): string | null {
+	return key.startsWith(`${LEGACY_CLAUDE_PROVIDER}:claude-`) ? `${CLAUDE_PROVIDER}:${key.slice(LEGACY_CLAUDE_PROVIDER.length + 1)}` : null;
+}
+
 export type ClaudeState =
 	/** First probe has not finished yet. */
 	| "checking"

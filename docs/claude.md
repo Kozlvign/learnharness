@@ -24,6 +24,8 @@ Upstream LearnHarness 0.4.0 added its own way to use Claude Code: **Settings →
 | Route id and models | `claude`: `claude:claude-opus`, `claude:claude-sonnet`, … | `claude-code`: `claude-code:opus`, `claude-code:sonnet`, `claude-code:haiku` |
 | Code | `src/agent/claude/` | `src/agent/claude-code/`, unchanged by the fork |
 
+Before fork 0.4.001, this connection used the id `claude-code`. Saved choices with the old id move to `claude` on their own, the first time the app reads them: the model slots and background-role choices in `settings.json`, each chat's model, its recorded responses and usage, and background jobs' usage. Only entries whose model id starts with `claude-` move, which the fork's ids always do and upstream's never do (`src/store/claude-migration.ts`).
+
 ## How it works
 
 LearnHarness's agent loop (pi-agent-core) asks for one model response at a time and runs tools itself. Claude Code runs a whole conversation and calls tools over MCP. The bridge (`src/agent/claude/`) joins the two:
@@ -74,7 +76,9 @@ At most six sessions are live at once. A session waiting for the learner closes 
 | `src/agent/claude/transcript.ts` | Fingerprints, content conversion, replay text |
 | `src/server/claude-http.ts`, `app/api/claude/route.ts` | Status and controls endpoint |
 | `components/settings/claude-connection.tsx` | Providers row, dialog, background-use button |
+| `src/store/claude-migration.ts` | Moves saved models from the old id, called by the settings, chat and job stores |
 | `tests/claude-bridge.test.ts` | Offline tests with a scripted Claude Code |
+| `tests/claude-migration.test.ts` | The move from the old id |
 
 ## Troubleshooting
 
