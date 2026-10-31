@@ -160,7 +160,7 @@ try {
     Step 'Checking'
     Native 'npx' @('tsc', '--noEmit')
     $env:NODE_ENV = 'test'
-    try { Native 'npx' @('tsx', '--test', 'tests/claude-bridge.test.ts', 'tests/claude-migration.test.ts', 'tests/i18n.test.ts', 'tests/images.test.tsx', 'tests/local-dictation.test.tsx', 'tests/evidence.test.ts', 'tests/evidence-server.test.ts', 'tests/evidence-ui.test.tsx') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
+    try { Native 'npx' @('tsx', '--test', 'tests/claude-bridge.test.ts', 'tests/claude-migration.test.ts', 'tests/i18n.test.ts', 'tests/images.test.tsx', 'tests/local-dictation.test.tsx', 'tests/evidence.test.ts', 'tests/evidence-server.test.ts', 'tests/evidence-ui.test.tsx', 'tests/anki-core.test.ts', 'tests/anki-server.test.ts', 'tests/anki-pipeline.test.ts', 'tests/anki-tutor.test.ts', 'tests/anki-ui.test.tsx') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
 
     Step 'Building'
     Native 'npm' @('run', 'build')

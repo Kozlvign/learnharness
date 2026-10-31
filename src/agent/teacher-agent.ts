@@ -111,6 +111,12 @@ export interface AgentBuildOptions {
 	/** Tests may pass a bare tool registry to drive deterministic flows.
 	 *  An explicit registry is NEVER toggle-filtered — the caller owns it. */
 	tools?: Record<string, AgentTool<any>>;
+	// Fork: Anki cards (docs/anki.md).
+	/** Tools added to the teacher's and the practice agent's registry (never
+	 *  the prober's), on top of the default or explicit registry, with the
+	 *  standard argument heal. The chat handler passes anki_card here while
+	 *  the feature is on. */
+	extraTools?: Record<string, AgentTool<any>>;
 	/** The resolved per-user tool toggles (core/pending EnabledTools — the
 	 *  2026-09-19 P2 bridge: Platform's chat-handler passes
 	 *  effective.agent.tools; the factories drop any tool explicitly false.
@@ -293,7 +299,8 @@ export function createTeacherAgent(
 	opts: AgentBuildOptions = {},
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools());
-	return baseAgentOptions("teacher", opts, Object.values(tools));
+	// Fork: Anki cards (docs/anki.md).
+	return baseAgentOptions("teacher", opts, Object.values({ ...tools, ...healToolRecord(opts.extraTools ?? {}) }));
 }
 
 /** The bare teach question set (tests, bare agents): quiz with the shared
@@ -337,7 +344,8 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
 	const tools = opts.tools ?? practiceTools(ctx);
-	return baseAgentOptions("practice", opts, Object.values(tools));
+	// Fork: Anki cards (docs/anki.md).
+	return baseAgentOptions("practice", opts, Object.values({ ...tools, ...healToolRecord(opts.extraTools ?? {}) }));
 }
 
 export type ProberAgent = ReturnType<typeof createProberAgent>;

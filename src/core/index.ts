@@ -97,3 +97,7 @@ export * from "./coverage.ts";
 export * from "./session-markdown.ts";
 // Fork: local dictation (docs/dictation.md).
 export * from "./dictation-local.ts";
+// Fork: Anki cards (docs/anki.md).
+export * from "./anki/contract.ts";
+export { isLoopbackAnkiUrl, parseAnkiSettings } from "./anki/settings.ts";
+export { ankiCardToolInputSchema, parseAnkiCardToolInput } from "./anki/tool.ts";

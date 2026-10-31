@@ -54,6 +54,8 @@ import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 import { ClaudeUIProvider } from "./claude-connection.tsx";
 import { LanguageSettings } from "@/components/i18n/language-settings";
+// Fork: Anki cards (docs/anki.md).
+import { AnkiSettings } from "@/components/anki/anki-settings";
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
@@ -63,6 +65,7 @@ const SECTIONS = [
 	{ id: "agent", label: "Agent" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
+	{ id: "anki", label: "Anki" }, // Fork: Anki cards (docs/anki.md).
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
 	{ id: "general", label: "General" },
 ] as const;
@@ -422,6 +425,12 @@ export function SettingsDialogBody({
 											void write("graph", next)
 										}
 									/>
+								</SettingsSection>
+							)}
+							{/* Fork: Anki cards (docs/anki.md). */}
+							{active === "anki" && (
+								<SettingsSection title="Anki" testid="section-anki">
+									<AnkiSettings />
 								</SettingsSection>
 							)}
 							{active === "keyboard" && (
