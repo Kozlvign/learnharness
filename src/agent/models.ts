@@ -27,6 +27,7 @@ import { CLAUDE_PROVIDER } from "../core/contracts/claude.ts";
 import { claudeModel } from "./claude/catalog.ts";
 import { claudeStream } from "./claude/stream.ts";
 import { withTutorLanguage } from "./language.ts";
+import { withAttachedImages } from "./attachments.ts";
 
 /** App identity is immutable and shared by Models and every native Agent.
  * Agent's default Pi attribution otherwise overrides the Models identity. */
@@ -206,8 +207,9 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 				const currentLevel = thinkingPreference
 					? clampThinkingLevel(currentModel, thinkingPreference)
 					: defaultThinkingLevel(currentModel);
-				// Fork: the learner's language rides on every call (docs/language.md).
-				return current.streamSimple(permitImages(currentModel), withTutorLanguage(context), { ...requestOptions, reasoning: currentLevel === "off" ? undefined : currentLevel });
+				// Fork: the learner's language and attached images ride on every call (docs/language.md, docs/images.md).
+				const customModel = permitImages(currentModel);
+				return current.streamSimple(customModel, withAttachedImages(withTutorLanguage(context), customModel), { ...requestOptions, reasoning: currentLevel === "off" ? undefined : currentLevel });
 			}
 			const purpose = typeof background === "function" ? background : () => background;
 			const stream = spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : claude ? claudeStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
@@ -216,8 +218,8 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 			const wireModel = requestModel.provider === "anthropic" && requestModel.api === "anthropic-messages"
 				? { ...requestModel, compat: { ...requestModel.compat, supportsMessageThreads: false } }
 				: requestModel;
-			// Fork: the learner's language rides on every call (docs/language.md).
-			return stream(wireModel, withTutorLanguage(context), requestOptions);
+			// Fork: the learner's language and attached images ride on every call (docs/language.md, docs/images.md).
+			return stream(wireModel, withAttachedImages(withTutorLanguage(context), wireModel), requestOptions);
 		},
 	};
 }

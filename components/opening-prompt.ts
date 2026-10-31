@@ -1,3 +1,5 @@
+import { parseImageList } from "@/src/core";
+
 /**
  * Same-tab handover of a new session's full opening text. Never put the
  * message in the navigation URL: long query payloads can be rejected before
@@ -8,15 +10,18 @@ export const OPENING_PROMPT_FAILURE = "Couldn’t open the session. Your message
 
 export interface OpeningPrompt {
 	text: string;
+	/** Fork: images sent with the opening message (docs/images.md). With
+	 *  images, the text may be empty. */
+	images?: string[];
 	/** Written BEFORE sending. A later mount restores a draft, never reposts. */
 	attempted: boolean;
 }
 
 const keyFor = (id: string) => `lh.openingPrompt.${id}`;
 
-export function stashOpeningPrompt(id: string, text: string, attempted = false): boolean {
+export function stashOpeningPrompt(id: string, text: string, attempted = false, images: readonly string[] = []): boolean {
 	try {
-		const value = JSON.stringify({ text, attempted } satisfies OpeningPrompt);
+		const value = JSON.stringify({ text, ...(images.length > 0 ? { images: [...images] } : {}), attempted } satisfies OpeningPrompt);
 		// Catch both the storage getter and its methods (quota/security errors).
 		const storage = globalThis.sessionStorage;
 		storage.setItem(keyFor(id), value);
@@ -32,9 +37,11 @@ export function readOpeningPromptEntry(id: string): OpeningPrompt | undefined {
 		if (!value) return undefined;
 		try {
 			const entry: unknown = JSON.parse(value);
+			// Fork: an opening may be images alone (docs/images.md).
+			const images = entry && typeof entry === "object" && "images" in entry ? parseImageList(entry.images) ?? [] : [];
 			if (entry && typeof entry === "object" && "text" in entry && typeof entry.text === "string" &&
-				entry.text.length > 0 && "attempted" in entry && typeof entry.attempted === "boolean") {
-				return { text: entry.text, attempted: entry.attempted };
+				(entry.text.length > 0 || images.length > 0) && "attempted" in entry && typeof entry.attempted === "boolean") {
+				return { text: entry.text, ...(images.length > 0 ? { images } : {}), attempted: entry.attempted };
 			}
 		} catch { /* Old raw-text stashes have no proof that sending never began. */ }
 		return { text: value, attempted: true };

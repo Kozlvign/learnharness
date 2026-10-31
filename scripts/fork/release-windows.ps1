@@ -144,7 +144,7 @@ try {
     Step 'Checking'
     Native 'npx' @('tsc', '--noEmit')
     $env:NODE_ENV = 'test'
-    try { Native 'npx' @('tsx', '--test', 'tests/claude-bridge.test.ts', 'tests/i18n.test.ts') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
+    try { Native 'npx' @('tsx', '--test', 'tests/claude-bridge.test.ts', 'tests/i18n.test.ts', 'tests/images.test.tsx') } finally { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
 
     Step 'Building'
     Native 'npm' @('run', 'build')
@@ -161,7 +161,7 @@ try {
         Invoke-Git @('tag', '-a', $tag, '-m', "LearnHarness $version (Claude fork of upstream $upstreamVersion)") | Out-Null
         Invoke-Git @('push', '--quiet', 'origin', 'main', $tag) | Out-Null
         $assets = @($installer, "$installer.blockmap", (Join-Path $repo 'dist\latest.yml'))
-        $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in) and a Brazilian Portuguese interface and tutor (Settings > General > Language). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
+        $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in), a Brazilian Portuguese interface and tutor (Settings > General > Language), and images in messages (paste, drop or attach them). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
         Native 'gh' (@('release', 'create', $tag) + $assets + @('--repo', $Repository, '--title', "LearnHarness $version", '--notes', $notes, '--latest'))
         Write-Host "Published https://github.com/$Repository/releases/tag/$tag"
     }

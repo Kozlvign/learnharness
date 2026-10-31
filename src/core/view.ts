@@ -39,6 +39,7 @@ import { readPluginQuestionMessageAnnotation, readPluginQuestionCancellation, ty
 import { pluginProblemForCall, type PluginProblemSnapshot } from "./plugin-problems.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
+import { isAttachedImage } from "./attachments.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
 
@@ -205,6 +206,8 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 			const content = m.content as string | Array<{ type: string; text?: string }>;
 			const parts = typeof content === "string" ? [textPart(content)] : content.flatMap((block): LhViewPart[] => {
 				if (block.type === "text") return [textPart(block.text as string)];
+				// Fork: an attached image is shown from its file (docs/images.md).
+				if (isAttachedImage(block)) return [{ type: "image", attachment: block.attachment }];
 				if (block.type === "image") return [{ ...block as ImageContent }];
 				return [];
 			});
