@@ -36,7 +36,7 @@ Upstream files touched (small, marked "Fork"):
 - `src/core/compaction.ts`: the summarizer input names attached images.
 - `src/agent/models.ts`: the model calls.
 - `components/session-core.ts` and `components/session.ts`: sends and steers with images.
-- `components/composer.tsx`, `components/chat.tsx`, `components/new-session.tsx` and `components/home.tsx`: the tray, the button and the sends.
+- `components/composer.tsx`, `components/chat.tsx`, `components/new-session.tsx` and `components/home.tsx`: the tray, the button and the sends. In a session, upstream's `ChatSessionComposer` passes the images on and lets a message of images alone be sent.
 - `components/opening-prompt.ts` and `components/start-session.ts`: a new session's opening images.
 - `components/file-path-drop-zone.tsx`: dropped images go to the composer.
 - `app/api/chats/[id]/steer/route.ts`: steers with images.
