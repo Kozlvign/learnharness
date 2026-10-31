@@ -187,8 +187,12 @@ publish:
   # from a private repo are impossible, and a token baked into the app
   # would be a leak. desktop:dist passes no --publish flag, so builds never
   # upload; publishing happens at release time (GH_TOKEN + --publish).
+  # Fork (Claude connection): installed fork builds update from the fork's own
+  # releases, so an upstream release never replaces them. The fork builds
+  # with --publish never and scripts/fork/release-windows.ps1 publishes the
+  # release itself, so releaseType keeps upstream's value.
   - provider: github
-    owner: amosblomqvist
+    owner: Kozlvign
     repo: learnharness
     # All three CI jobs contribute assets; only the owner publishes it.
     releaseType: draft

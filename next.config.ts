@@ -113,6 +113,10 @@ const nextConfig: NextConfig = {
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@silvia-odwyer/photon-node", // CJS loads its adjacent WASM from disk
 		"@resvg/resvg-js", // native binding — same
+		// Fork (Claude connection): the Agent SDK spawns Claude Code and its
+		// in-process MCP server must share one MCP SDK instance.
+		"@anthropic-ai/claude-agent-sdk",
+		"@modelcontextprotocol/sdk",
 	],
 };
 
