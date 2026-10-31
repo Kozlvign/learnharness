@@ -24,6 +24,8 @@ import { AnsweredCard } from "@/components/answered-card";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
+import { MessageImages } from "@/components/attachments/composer-images";
+import { useComposerImages, type ComposerImages } from "@/components/attachments/use-composer-images";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
@@ -575,6 +577,10 @@ export function Chat({
 	 *  opens recovery with no replay. */
 	const draftRef = useRef<string | null>(null);
 	const openingDraftRef = useRef<string | null>(null);
+	// Fork: the opening's images, and the composer's tray, which is set up
+	// further down (docs/images.md).
+	const openingImagesRef = useRef<readonly string[]>([]);
+	const imagesRef = useRef<ComposerImages | null>(null);
 	const [openingError, setOpeningError] = useState(false);
 	const openingMountedRef = useRef(false);
 	useEffect(() => {
@@ -582,25 +588,30 @@ export function Chat({
 		return () => { openingMountedRef.current = false; };
 	}, []);
 
-	const deliverOpeningPrompt = useCallback((prompt: string) => {
+	const deliverOpeningPrompt = useCallback((prompt: string, images: readonly string[] = []) => {
 		openingDraftRef.current = prompt;
+		openingImagesRef.current = images;
 		// Persist uncertainty BEFORE the POST: another mount must restore,
 		// not race the still-arriving request. No storage means no auto-send.
-		if (!stashOpeningPrompt(chatId, prompt, true)) {
+		if (!stashOpeningPrompt(chatId, prompt, true, images)) {
 			applyText(prompt);
+			imagesRef.current?.restore(images);
 			setOpeningError(true);
 			return;
 		}
 		setOpeningError(false);
 		draftRef.current = prompt; // The existing 503 flow must restore it too.
 		applyText("");
-		void send({ type: "text", text: prompt }, () => {
+		imagesRef.current?.clear();
+		void send({ type: "text", text: prompt, ...(images.length > 0 ? { images: [...images] } : {}) }, () => {
 			clearOpeningPrompt(chatId);
 			openingDraftRef.current = null;
+			openingImagesRef.current = [];
 			if (draftRef.current === prompt) draftRef.current = null;
 		}).then(accepted => {
-			if (!accepted && openingMountedRef.current && openingDraftRef.current === prompt && !textRef.current) {
+			if (!accepted && openingMountedRef.current && openingDraftRef.current === prompt && !textRef.current && !imagesRef.current?.items.length) {
 				applyText(prompt);
+				imagesRef.current?.restore(images);
 			}
 		});
 	}, [chatId, send, applyText]);
@@ -611,16 +622,19 @@ export function Chat({
 		sentInitial.current = true;
 		const entry = readOpeningPromptEntry(chatId);
 		const prompt = initialPrompt || entry?.text; // Legacy links still work.
-		if (!initialPromptOwed(initialMessages, prompt)) {
+		const images = entry?.images ?? []; // Fork (docs/images.md).
+		if (!initialPromptOwed(initialMessages, prompt, images)) {
 			if (initialMessages.some(m => m.role === "user" || m.role === "assistant")) clearOpeningPrompt(chatId);
 			return;
 		}
-		openingDraftRef.current = prompt!;
+		openingDraftRef.current = prompt ?? "";
+		openingImagesRef.current = images;
 		if (entry?.attempted || initiallyInFlight) {
-			applyText(prompt!); // Interrupted start: the learner explicitly resends.
+			applyText(prompt ?? ""); // Interrupted start: the learner explicitly resends.
+			imagesRef.current?.restore(images);
 			return;
 		}
-		deliverOpeningPrompt(prompt!);
+		deliverOpeningPrompt(prompt ?? "", images);
 	}, [chatId, initialPrompt, initialMessages, initiallyInFlight, deliverOpeningPrompt, applyText]);
 
 	useEffect(() => {
@@ -630,6 +644,10 @@ export function Chat({
 		// only the unchanged recovered draft, never the learner's newer work.
 		const opening = openingDraftRef.current;
 		if (opening !== null && textRef.current === opening) applyText("");
+		// Fork: the same for the opening's images (docs/images.md).
+		const tray = imagesRef.current?.names() ?? [];
+		if (opening !== null && tray.length > 0 && tray.join() === openingImagesRef.current.join()) imagesRef.current?.clear();
+		openingImagesRef.current = [];
 		if (draftRef.current === opening) draftRef.current = null;
 		openingDraftRef.current = null;
 		setOpeningError(false);
@@ -744,8 +762,11 @@ export function Chat({
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
+	// Fork: attached images (docs/images.md); a message may be images alone.
+	const images = useComposerImages({ enabled: !pending && !activeProblem && !compacting });
+	imagesRef.current = images;
 	const canSend =
-		(text.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting;
+		(text.trim().length > 0 || dictation.active || images.items.length > 0) && !pending && !activeProblem && !compacting;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1207,7 +1228,8 @@ export function Chat({
 	const doSend = () => {
 		if (busy || pending || compacting) return;
 		const t = textRef.current.trim();
-		if (!t) return;
+		const attached = images.names();
+		if (!t && attached.length === 0) return;
 		if (zeroKeys) {
 			setSetupOpen(true);
 			return;
@@ -1217,12 +1239,13 @@ export function Chat({
 			return; // No optimistic send and no change to the learner's draft.
 		}
 		if (openingDraftRef.current !== null) {
-			deliverOpeningPrompt(t);
+			deliverOpeningPrompt(t, attached);
 			return;
 		}
 		draftRef.current = t; // the refusal flow's preserve-and-replay seam
 		applyText("");
-		void send({ type: "text", text: t });
+		images.clear();
+		void send({ type: "text", text: t, ...(attached.length > 0 ? { images: attached } : {}) });
 	};
 
 	/* STEER VS SEND (owner arc 2026-10-03): a send while a turn runs steers
@@ -1235,12 +1258,15 @@ export function Chat({
 	 * time the send's POST resolved, so the steer lands. Idle takes the
 	 * plain send; a raced settle 409s and falls back to exactly that. */
 	const doSteerOrSend = () => {
-		if (pending || compacting) return;
+		// Fork: images still attaching hold the send; the tray shows them working.
+		if (pending || compacting || images.isUploading()) return;
 		const t = textRef.current.trim();
-		if (!t) return;
+		const attached = images.names();
+		if (!t && attached.length === 0) return;
 		if (busy) {
 			applyText("");
-			void steer(t);
+			images.clear();
+			void steer(t, attached);
 			return;
 		}
 		doSend();
@@ -1510,6 +1536,7 @@ export function Chat({
 												    sits INSIDE the rail, same mono-xs register and same 1ch
 												    rail as the thinking rows — one quote geometry. */}
 												<div className="font-medium uppercase tracking-wide text-muted-foreground">You</div>
+												<MessageImages parts={m.parts} />
 												<div className="lh-prose whitespace-pre-wrap text-foreground">
 													<PathText text={m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")} />
 												</div>
@@ -1738,6 +1765,7 @@ export function Chat({
 							nextProblem={nextReady}
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
+							images={images}
 						/>
 					}
 					onSubmitAnswer={(output) => {
@@ -1848,8 +1876,8 @@ export type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "proble
  * (owner report, 2026-10-04: the turn went dead behind it — the old
  * `length === 0` check saw the marker and refused to fire).
  */
-export function initialPromptOwed(messages: readonly { role: string }[], prompt: string | undefined): boolean {
-	if (!prompt) return false;
+export function initialPromptOwed(messages: readonly { role: string }[], prompt: string | undefined, images?: readonly string[]): boolean {
+	if (!prompt && !images?.length) return false;
 	return !messages.some((m) => m.role === "user" || m.role === "assistant");
 }
 

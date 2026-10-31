@@ -18,7 +18,7 @@ const SKIP_DIRS = new Set(["node_modules", "api", "subagents", "tools", "prompts
 const SKIP_PATHS = /(^|\/)src\/core\/i18n\//;
 // Agent prompts, tool descriptions and transcript notes are read by the
 // model, not the learner.
-const SKIP_FILES = /(\.test\.|\.d\.ts$|prompt|instructions|teacher-agent|grader|probe|tool-execute|native-messages|compaction\.ts$|coverage\.ts$|plan-tree\.ts$|question-core\.ts$|input-events\.ts$|session-markdown\.ts$|\/tools\.ts$|contracts\/(chat|jobs)\.ts$|transcript\.ts$|events-stream\.ts$|turn-runs\.ts$)/i;
+const SKIP_FILES = /(\.test\.|\.d\.ts$|prompt|instructions|teacher-agent|grader|probe|tool-execute|native-messages|compaction\.ts$|coverage\.ts$|plan-tree\.ts$|question-core\.ts$|input-events\.ts$|session-markdown\.ts$|\/tools\.ts$|contracts\/(chat|jobs)\.ts$|transcript\.ts$|events-stream\.ts$|turn-runs\.ts$|agent\/attachments\.ts$)/i;
 
 const UI_ATTRIBUTES = new Set([
 	"title", "placeholder", "aria-label", "aria-description", "aria-valuetext", "alt", "label", "hint",

@@ -16,6 +16,9 @@ import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
+import { imagesLabel } from "@/src/core";
+import { AttachImagesButton, ComposerImageTray } from "@/components/attachments/composer-images";
+import { useComposerImages } from "@/components/attachments/use-composer-images";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -62,6 +65,8 @@ export function Home({
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
 	const [startError, setStartError] = useState(false);
+	// Fork: attached images (docs/images.md); a session may start from images alone.
+	const images = useComposerImages();
 	/* Run end focuses the topic input (owner, 2026-10-01): the hands are on
 	 * the keyboard from the stop. Falling edge only; this surface's only
 	 * dictation target IS this textarea, so no case-split is needed. */
@@ -111,7 +116,8 @@ export function Home({
 	};
 	const begin = async () => {
 		const t = topicRef.current.trim();
-		if (!t || startingRef.current) return;
+		const attached = images.names();
+		if ((!t && attached.length === 0) || startingRef.current || images.isUploading()) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -144,10 +150,11 @@ export function Home({
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
 			const target = await starterRef.current.start({
-				title: t,
+				// Fork: a session may start from images alone (docs/images.md).
+				title: t || imagesLabel(attached.length),
 				...(mode === "practice" ? { kind: "practice" } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
-			}, fetch, JSON.stringify(catalog?.slots.strong));
+			}, fetch, JSON.stringify(catalog?.slots.strong), { text: t, images: attached });
 			router.push(target);
 		} catch {
 			startingRef.current = false;
@@ -243,15 +250,18 @@ export function Home({
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 					<form
-						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
+						className="flex flex-wrap items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
 						void start();
 					}}
 				>
+					<ComposerImageTray images={images} />
+					<AttachImagesButton images={images} />
 					<PathInput
 						ref={topicInputRef}
 						value={topic}
+						onPaste={images.onPaste}
 						onValueChange={(value) => {
 							topicRef.current = value;
 							setTopic(value);
@@ -281,7 +291,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
+						disabled={(!topic.trim() && !dictation.active && images.items.length === 0) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />

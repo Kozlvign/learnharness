@@ -4,6 +4,8 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
 import { PathInput } from "@/components/path-input";
+import { AttachImagesButton, ComposerImageTray } from "@/components/attachments/composer-images";
+import type { ComposerImages } from "@/components/attachments/use-composer-images";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -50,6 +52,7 @@ export function Composer({
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
 	onNext,
+	images,
 }: {
 	busy: boolean;
 	value: string;
@@ -75,6 +78,8 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	/** Fork: attached images (docs/images.md) — tray, attach button, paste. */
+	images?: ComposerImages;
 }) {
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
@@ -85,17 +90,20 @@ export function Composer({
 	return (
 		<form
 			data-testid="composer"
-			className="flex items-end gap-1.5 p-1.5"
+			className="flex flex-wrap items-end gap-1.5 p-1.5"
 			onSubmit={(e) => {
 				e.preventDefault();
 				act();
 			}}
 		>
+			{images && <ComposerImageTray images={images} />}
+			{images && <AttachImagesButton images={images} />}
 			<PathInput
 				ref={inputRef}
 				value={value}
 				onValueChange={onChange}
 				defaultDropTarget
+				onPaste={images?.onPaste}
 				onKeyDown={(e) => {
 					// Esc ends dictation before anything else Esc might someday mean
 					// here (the dictate decisions: click-again or Esc to stop).

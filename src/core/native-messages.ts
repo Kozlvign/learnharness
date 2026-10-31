@@ -45,6 +45,7 @@ import {
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
+import { userContent } from "./attachments.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -177,12 +178,14 @@ export function newMessageId(): string {
 // ─── constructors (the input-event → native append mapping lives in
 //     core/input-events.ts; steers in core/contracts/jobs.ts) ─────────────────
 
-/** A learner-authored user message (text input, verdict note). */
-export function newUserMessage(text: string): LhMessage & UserMessage {
+/** A learner-authored user message (text input, verdict note). Fork: with
+ *  attached images, the content is the image blocks then the text
+ *  (docs/images.md). */
+export function newUserMessage(text: string, images?: readonly string[]): LhMessage & UserMessage {
 	return {
 		id: newMessageId(),
 		role: "user",
-		content: text,
+		content: userContent(text, images),
 		timestamp: Date.now(),
 	};
 }
@@ -192,8 +195,8 @@ export function newUserMessage(text: string): LhMessage & UserMessage {
  *  rides agent.steer(), the live stream's message events, and the settled
  *  record, so the optimistic queued indicator and the transcript card
  *  upsert by one identity. */
-export function newUserSteer(text: string, id: string): LhMessage & UserMessage {
-	return { id, role: "user", content: text, timestamp: Date.now() };
+export function newUserSteer(text: string, id: string, images?: readonly string[]): LhMessage & UserMessage {
+	return { id, role: "user", content: userContent(text, images), timestamp: Date.now() };
 }
 
 /** The learner's answer — the question call's tool result (fork 1).

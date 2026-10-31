@@ -58,6 +58,8 @@ export { CLAUDE_API, CLAUDE_INSTALL_URL, CLAUDE_LABEL, CLAUDE_PROVIDER } from ".
 export type { ClaudeAccount, ClaudeControl, ClaudeModelSummary, ClaudeState, ClaudeStatus, ClaudeUsageWindow } from "./contracts/claude.ts";
 // Fork: interface and tutor language (docs/language.md).
 export * from "./i18n/index.ts";
+// Fork: images attached to messages (docs/images.md).
+export * from "./attachments.ts";
 export type { NativeSubscriptionProviderId, NativeSubscriptionLogicalId, NativeSubscriptionStatus, NativeSubscriptionSnapshot, NativeSubscriptionScope, NativeSubscriptionControlBridge, SubscriptionInteraction, SubscriptionPrompt } from "./contracts/subscriptions.ts";
 export * from "./cost-summary.ts";
 export { CLAUDE_CODE_PROVIDER, CLAUDE_CODE_MINIMUM_VERSION, type ClaudeCodeStatus } from "./contracts/claude-code.ts";

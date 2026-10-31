@@ -5,6 +5,7 @@ import { FileSymlinkIcon, XIcon } from "lucide-react";
 import { quoteFilePath } from "@/src/core";
 import { appendToPrimaryInput } from "@/components/dictation";
 import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
+import { dragTakenAsImages, takeDroppedImages } from "@/components/attachments/drop-target";
 
 const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app. You can paste a full path instead.";
 
@@ -40,7 +41,8 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 				if (!hasFiles(event)) return;
 				event.preventDefault();
 				depth.current++;
-				setDragging(true);
+				// Fork: a drag of images only shows the composer's hint (docs/images.md).
+				setDragging(!dragTakenAsImages(event.dataTransfer));
 				setNotice("");
 			}}
 			onDragOver={(event) => {
@@ -59,6 +61,10 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 				event.preventDefault();
 				event.stopPropagation();
 				clearDrag();
+				// Fork: while a composer takes images, dropped images become its
+				// attachments and only the other files become paths (docs/images.md).
+				const taken = takeDroppedImages(Array.from(event.dataTransfer.files));
+				if (taken.size > 0 && taken.size === event.dataTransfer.files.length) return;
 				const resolve = window.lh?.getPathForFile;
 				if (!resolve) { setNotice(BROWSER_NOTICE); return; }
 				// Directories are not file references. This check uses drag metadata,
@@ -67,6 +73,7 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 				const paths: string[] = [];
 				let skipped = 0;
 				for (const [index, file] of Array.from(event.dataTransfer.files).entries()) {
+					if (taken.has(file)) continue;
 					try {
 						if (entries[index]?.webkitGetAsEntry?.()?.isDirectory) { skipped++; continue; }
 						const path = resolve(file);
