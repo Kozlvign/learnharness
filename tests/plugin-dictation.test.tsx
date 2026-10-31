@@ -63,6 +63,8 @@ async function fixture() {
 		IS_REACT_ACT_ENVIRONMENT: true,
 		fetch: async (url: string) => {
 			if (url === "/api/stt/token") return Response.json({ token: "test-token" });
+			// Fork: local dictation (docs/dictation.md) — Deepgram is the chosen engine here.
+			if (url === "/api/dictation") return Response.json({ settings: { engine: "deepgram" }, model: { state: "missing" } });
 			assert.equal(url, "/api/settings");
 			return Response.json({ settings: { version: 1, dictation: { language: "en" } } });
 		},
