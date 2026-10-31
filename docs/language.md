@@ -7,7 +7,7 @@ Open **Settings → General**:
 - **Language** sets the interface: menus, buttons, settings, status lines and error messages. The change applies at once, without a restart.
 - **Tutor language** sets what the tutor writes in: lessons, questions and answer options, hints, feedback, plans, research and PDF briefs, figures and demos, and the names of concepts in the knowledge graph. **Same as the app** (the default) follows the interface. Pick a language to teach in something else, for example a Portuguese interface with an English tutor. The tutor switches on its next reply.
 
-Dictation has its own language setting, in **Settings → Providers → Dictation**.
+Dictation has its own language setting, in **Settings → Providers → Dictation**. The local model detects the language you speak; Deepgram uses the language chosen there (see [dictation.md](dictation.md)).
 
 Your own messages, the tutor's prose, code, math and diagrams are never translated by the interface. Names you or the tutor gave, such as session titles and graph nodes, are only translated when they exactly match an interface phrase. When the subject you study is itself a language, the tutor keeps the material in that language and explains it in yours.
 

@@ -47,6 +47,7 @@ export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web
 export { claudeResponse } from "./claude-http.ts";
 export { languageResponse } from "./language-http.ts";
 export { attachmentResponse, uploadAttachmentResponse } from "./attachments-http.ts";
+export { dictationModelResponse, dictationResponse, dictationSessionEndResponse, dictationSessionResponse, dictationSessionsResponse } from "./dictation-http.ts";
 export { sessionCost } from "./pricing.ts";
 export { claudeCodeInstallationResponse } from "./claude-code.ts";
 // The custom endpoint module (registers into piModels() + probes for models).
