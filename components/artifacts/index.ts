@@ -7,6 +7,8 @@ import { ImageCard } from "@/components/artifacts/image-card";
 import { ProbeDoneCard } from "@/components/artifacts/probe-done-card";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
+// Fork: Anki cards (docs/anki.md).
+import { AnkiCardChip } from "@/components/anki/anki-card-chip";
 
 /**
  * Artifact renderer registry — the extension point for tool-part UI.
@@ -53,4 +55,5 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// discipline (their results are pre-formatted strings too).
 	list_sessions: ToolCallCard,
 	list_propositions: ToolCallCard,
+	anki_card: AnkiCardChip, // Fork: Anki cards (docs/anki.md).
 };
