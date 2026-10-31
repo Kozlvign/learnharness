@@ -65,8 +65,9 @@ async function fixture(options: { strict?: boolean; activity?: boolean; withSess
 		IS_REACT_ACT_ENVIRONMENT: true, innerWidth: 1024, innerHeight: 800,
 		requestAnimationFrame: () => 0, cancelAnimationFrame: () => {},
 		fetch: (async (url, init) => {
-			// Fork: the Claude connection reads its status on mount (docs/claude.md); not the picker's.
-			if (String(url) === "/api/claude") return Response.json({ error: "fixture" }, { status: 503 });
+			// Fork: the Claude connection (docs/claude.md) and practice evidence
+			// (docs/evidence.md) read their state on load; neither is the picker's.
+			if (String(url) === "/api/claude" || String(url) === "/api/evidence") return Response.json({ error: "fixture" }, { status: 503 });
 			requests.push({ url: String(url), init });
 			if (options.fetch) return options.fetch(url, init);
 			if (url === "/api/settings") return Response.json({ settings: { version: 1, appearance: { background: "#141414" } } });

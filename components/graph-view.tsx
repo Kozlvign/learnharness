@@ -83,6 +83,8 @@ import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ToolContentResponse } from "@/components/ai-elements/message";
+// Fork: practice evidence (docs/evidence.md).
+import { PropositionEvidence } from "@/components/proposition-evidence";
 import { Hint } from "@/components/ui/hint";
 import {
 	ARROW_LENGTH_LADDER,
@@ -1662,6 +1664,8 @@ export function GraphView({
 					) : (
 						<div className="mt-3 text-xs text-muted-foreground">No sessions recorded.</div>
 					)}
+					{/* Fork: practice evidence (docs/evidence.md). */}
+					<PropositionEvidence nodeId={selected.node.id} />
 				</div>
 			)}
 			{/* The chain table overlay (chains-overlay plan, 2026-09-29):
