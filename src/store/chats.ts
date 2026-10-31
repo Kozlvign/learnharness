@@ -19,6 +19,7 @@ import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
 import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
+import { migrateClaudeChat } from "./claude-migration.ts";
 
 function chatFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
@@ -75,6 +76,8 @@ function getChat(id: string): ChatRecord | null {
 		console.error(`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`);
 		return null;
 	}
+	// Fork: the Claude connection's models move to its own id (docs/claude.md).
+	if (migrateClaudeChat(parsed as ChatRecord)) writeChat(parsed as ChatRecord);
 	return parsed as ChatRecord;
 }
 
