@@ -9,7 +9,7 @@ import { syncBuiltinESMExports } from "node:module";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { after, before, beforeEach, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it, mock } from "node:test";
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-anki-"));
 process.env.LH_DATA_DIR = path.join(scratch, "data");
@@ -605,6 +605,27 @@ describe("Anki card ledger", () => {
 			assert.equal(dataFiles().filter((name) => name.includes(".corrupt-")).length, 2);
 			assert.equal(errors.length, 2);
 		} finally {
+			console.error = original;
+		}
+	});
+
+	it("two unreadable ledgers in the same millisecond keep both copies", () => {
+		const errors: unknown[] = [];
+		const original = console.error;
+		console.error = (...args: unknown[]) => { errors.push(args); };
+		const now = mock.method(Date, "now", () => 1_700_000_000_000);
+		try {
+			fs.mkdirSync(process.env.LH_DATA_DIR!, { recursive: true });
+			fs.writeFileSync(store.ankiLedgerFile(), "first");
+			store.readAnkiLedger();
+			fs.writeFileSync(store.ankiLedgerFile(), "second");
+			store.readAnkiLedger();
+			const aside = dataFiles().filter((name) => name.includes(".corrupt-")).sort();
+			assert.deepEqual(aside, ["anki-cards.json.corrupt-1700000000000", "anki-cards.json.corrupt-1700000000000-1"]);
+			assert.equal(fs.readFileSync(path.join(process.env.LH_DATA_DIR!, aside[0]!), "utf8"), "first");
+			assert.equal(fs.readFileSync(path.join(process.env.LH_DATA_DIR!, aside[1]!), "utf8"), "second");
+		} finally {
+			now.mock.restore();
 			console.error = original;
 		}
 	});
