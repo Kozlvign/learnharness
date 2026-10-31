@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { HostDialog } from "@/components/host-dialog";
-import type { ChatDeleteMode, ChatListItem, FolderDeletionScope } from "@/src/core";
+import type { ChatDeleteMode, ChatKind, ChatListItem, FolderDeletionScope } from "@/src/core";
 
 /** The graph-traces checkbox copy (owner, 2026-09-24 flow rework — was
  *  the delete-nodes option's body in the two-button design): the
@@ -81,7 +81,8 @@ export function DeleteSessionDialog({
 	onDeleted,
 }: {
 	/** The session up for deletion; null = closed. */
-	chat: Pick<ChatListItem, "id" | "title"> | null;
+	// Fork: the kind drives the practice evidence notice (docs/evidence.md).
+	chat: (Pick<ChatListItem, "id" | "title"> & { kind?: ChatKind }) | null;
 	onClose: () => void;
 	/** Success path — the sidebar owns navigation + list patching. */
 	onDeleted: (id: string, mode: ChatDeleteMode, graphRevision: number) => void;
@@ -160,7 +161,7 @@ export function DeleteSessionBody({
 	renderFrame,
 	copy = SESSION_DELETE_COPY,
 }: {
-	chat: Pick<ChatListItem, "id" | "title">;
+	chat: Pick<ChatListItem, "id" | "title"> & { kind?: ChatKind };
 	/** The graph-traces checkbox — unchecked by default (preserve-graph). */
 	traces: boolean;
 	busy: boolean;
@@ -193,6 +194,12 @@ export function DeleteSessionBody({
 				</code>
 			</div>
 			<p className="mt-2 text-sm text-muted-foreground">{copy.body}</p>
+			{/* Fork: practice evidence (docs/evidence.md). */}
+			{chat.kind === "practice" && (
+				<p data-testid="delete-practice-evidence" className="mt-2 text-sm text-muted-foreground">
+					Its practice results also leave the Practice section of the propositions it exercised.
+				</p>
+			)}
 			<label
 				data-testid={TRACES_COPY.testid}
 				className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/60 px-4 py-3"

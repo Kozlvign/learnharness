@@ -3,11 +3,15 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { HostDialog } from "./host-dialog";
 import type { SourceEntry, SourceFolder } from "@/src/core";
+// Fork: practice evidence (docs/evidence.md).
+import { usePracticeEvidenceChatIds } from "./proposition-evidence";
 
-export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSessions, busy, failure, onClose, onRun, renderFrame }: {
+export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSessions, busy, failure, onClose, onRun, renderFrame, practiceChatIds }: {
 	sources: SourceEntry[]; folders: SourceFolder[]; deleteSessions: boolean; onDeleteSessions: (checked: boolean) => void;
 	busy: boolean; failure: string; onClose: () => void; onRun: () => void;
 	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
+	// Fork: sessions with practice evidence (docs/evidence.md).
+	practiceChatIds?: ReadonlySet<string>;
 }) {
 	const chats = sources.filter((s) => s.kind === "chat");
 	const names = [...sources.map((s) => s.label ?? s.id), ...folders.map((f) => f.name)];
@@ -24,6 +28,8 @@ export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSes
 				onChange={(e) => onDeleteSessions(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-primary" />
 			<span className="min-w-0"><span className="block text-sm">Also delete the {chats.length} selected {chats.length === 1 ? "session" : "sessions"}</span>
 				<span className="mt-1 block text-xs text-muted-foreground">Unchecked, conversations stay in their current folders and can be extracted again. Either way, their graph contributions and extraction coverage are cleared. Checking this also permanently deletes their messages and background jobs.</span>
+				{/* Fork: practice evidence (docs/evidence.md). */}
+				{chats.some((chat) => practiceChatIds?.has(chat.id)) && <span data-testid="delete-source-practice-evidence" className="mt-1 block text-xs text-muted-foreground">Practice results from these sessions also leave the Practice section of the propositions they exercised.</span>}
 			</span>
 		</label>}
 		{failure && <p role="alert" data-testid="source-delete-failure" className="mt-3 text-xs text-foreground">{failure}</p>}
@@ -40,6 +46,7 @@ export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }
 }) {
 	const [deleteSessions, setDeleteSessions] = useState(false), [busy, setBusy] = useState(false), [failure, setFailure] = useState("");
 	useEffect(() => { if (!open) { setDeleteSessions(false); setBusy(false); setFailure(""); } }, [open]);
+	const practiceChatIds = usePracticeEvidenceChatIds(open); // Fork: practice evidence (docs/evidence.md).
 
 	if (!open) return null;
 	const run = async () => {
@@ -50,7 +57,7 @@ export function DeleteSourceDialog({ open, sources, folders, onDelete, onClose }
 		finally { setBusy(false); }
 	};
 	return <DeleteSourceBody sources={sources} folders={folders} deleteSessions={deleteSessions} onDeleteSessions={setDeleteSessions}
-		busy={busy} failure={failure} onClose={onClose} onRun={() => { void run(); }}
+		busy={busy} failure={failure} onClose={onClose} onRun={() => { void run(); }} practiceChatIds={practiceChatIds}
 		renderFrame={(frame) => <HostDialog open frame={frame} onClose={() => {
 			if (busy) return "blocked";
 			onClose(); return "closed";

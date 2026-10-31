@@ -23,6 +23,8 @@
 > And **images in messages**: paste a screenshot, drop a photo of your handwritten work or pick files, and the tutor reads them. See [docs/images.md](docs/images.md).
 >
 > And **local dictation**: speak Portuguese or English (or both) and an open model transcribes it on your computer, with no key or subscription. See [docs/dictation.md](docs/dictation.md).
+>
+> And **practice evidence**: each proposition's card in the knowledge graph lists what happened when practice exercised it, as dated events rather than a grade. See [docs/evidence.md](docs/evidence.md).
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 
