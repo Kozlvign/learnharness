@@ -6,7 +6,7 @@
  * file. Ledger updates are serialized in-process: concurrent callers never
  * interleave a read-modify-write.
  */
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PATHS } from "../../../config.ts";
@@ -103,7 +103,8 @@ function normalizedRecord(value: unknown): AnkiCardRecord | null {
 
 /**
  * The ledger as stored. Tolerant: no file = an empty ledger; a file that is
- * not a version-1 ledger is renamed aside (`anki-cards.json.corrupt-<ms>`)
+ * not a version-1 ledger is renamed aside (`anki-cards.json.corrupt-<ms>`,
+ * plus `-<n>` when that name is taken, so an earlier copy is never replaced)
  * and the ledger starts empty; records without a string id, key, chatId and
  * a known status are dropped, and the rest get safe `targets`, `attempts`,
  * `createdAt` and `updatedAt`. Any other read failure throws, so an update
@@ -123,7 +124,10 @@ export function readAnkiLedger(): AnkiLedger {
 	const stored = parsed as Partial<AnkiLedger> | undefined;
 	if (!stored || typeof stored !== "object" || Array.isArray(stored) || stored.version !== 1 || !Array.isArray(stored.cards)) {
 		try {
-			renameSync(file, `${file}.corrupt-${Date.now()}`);
+			const base = `${file}.corrupt-${Date.now()}`;
+			let aside = base;
+			for (let n = 1; existsSync(aside); n++) aside = `${base}-${n}`;
+			renameSync(file, aside);
 		} catch (cause) {
 			// Another reader moved it first.
 			if ((cause as NodeJS.ErrnoException | null)?.code !== "ENOENT") throw cause;
