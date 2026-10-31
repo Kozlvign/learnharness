@@ -76,6 +76,8 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
+// Fork: practice evidence (docs/evidence.md).
+import { PropositionEvidence } from "@/components/proposition-evidence";
 import { Hint } from "@/components/ui/hint";
 import {
 	ARROW_LENGTH_LADDER,
@@ -1655,6 +1657,8 @@ export function GraphView({
 					) : (
 						<div className="mt-3 text-xs text-muted-foreground">No sessions recorded.</div>
 					)}
+					{/* Fork: practice evidence (docs/evidence.md). */}
+					<PropositionEvidence nodeId={selected.node.id} />
 				</div>
 			)}
 			{/* The chain table overlay (chains-overlay plan, 2026-09-29):

@@ -8,6 +8,8 @@ export * from "./chat-handler.ts";
 export * from "./events-stream.ts";
 export * from "./chats.ts";
 export * from "./graph.ts";
+// Fork: practice evidence (docs/evidence.md).
+export { propositionEvidenceView, practicedPropositionEvidence } from "./evidence.ts";
 export * from "./source-organization.ts";
 export * from "./source-deletion.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
