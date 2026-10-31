@@ -17,6 +17,7 @@ import type { JobStore } from "../core/ports.ts";
 import type { CreateJobInit, JobPatch } from "../core/ports.ts";
 import type { JobRecord } from "../core/contracts.ts";
 import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
+import { migrateClaudeJob } from "./claude-migration.ts";
 
 /** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
 const JOBS_DIR = path.join(/* turbopackIgnore: true */ PATHS.data, "jobs");
@@ -68,7 +69,10 @@ function createJob(init: CreateJobInit): JobRecord {
 
 function getJob(id: string): JobRecord | null {
 	try {
-		return JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ jobFile(id), "utf-8")) as JobRecord;
+		const record = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ jobFile(id), "utf-8")) as JobRecord;
+		// Fork: the Claude connection's models move to its own id (docs/claude.md).
+		if (migrateClaudeJob(record)) writeJob(record);
+		return record;
 	} catch {
 		return null;
 	}

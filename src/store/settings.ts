@@ -27,6 +27,7 @@ import {
 import type { SettingsStore } from "../core/ports.ts";
 import { writeFileAtomicSync } from "./atomic-write.ts";
 import { parseFileAccessSettings, type FileAccessSettingsResult } from "../core/file-access.ts";
+import { migrateClaudeSettings } from "./claude-migration.ts";
 
 const FILE_ACCESS_ERROR = "File-access configuration cannot be read reliably. Learner-file access is blocked. Repair File access in Settings → Agent → Tools.";
 
@@ -106,6 +107,8 @@ export function readSettings(): UserSettings | null {
 	// Version chain (empty today): a future v2 migration slots in here —
 	// `if (record.version > CURRENT_SETTINGS_VERSION) …`. Unknown NEWER
 	// versions pass through untouched (the sanitizer preserved unknowns).
+	// Fork: the Claude connection's models move to its own id (docs/claude.md).
+	if (migrateClaudeSettings(record)) writeSettings(record);
 	return record;
 }
 
