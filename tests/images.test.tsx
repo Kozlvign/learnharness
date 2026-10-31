@@ -24,7 +24,7 @@ const { readOpeningPromptEntry, stashOpeningPrompt } = await import("../componen
 const { startDraftSession } = await import("../components/new-session.tsx");
 const { SessionStarter } = await import("../components/start-session.ts");
 const { dragTakenAsImages, takeDroppedImages, acceptDroppedImages } = await import("../components/attachments/drop-target.ts");
-const { Composer } = await import("../components/composer.tsx");
+const { ChatSessionComposer, Composer } = await import("../components/composer.tsx");
 const { MessageImages } = await import("../components/attachments/composer-images.tsx");
 const { fitScale, pastedImages } = await import("../components/attachments/image-files.ts");
 type ComposerImages = import("../components/attachments/use-composer-images.ts").ComposerImages;
@@ -273,6 +273,15 @@ describe("composer", () => {
 	it("the composer without images renders as upstream's", () => {
 		const html = renderToStaticMarkup(<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend />);
 		assert.doesNotMatch(html, /Attach images/);
+	});
+
+	it("in a session, a message of images alone can be sent", () => {
+		const sendButton = (value?: ComposerImages) => renderToStaticMarkup(
+			<ChatSessionComposer busy={false} value="" revision={0} onChange={() => {}} onSend={() => {}} onStop={() => {}} sendAllowed dictationActive={false} images={value} />,
+		).match(/<button type="submit"[^>]*>/)?.[0] ?? "";
+		assert.doesNotMatch(sendButton(images([{ key: "1", preview: "blob:1", name: A }])), / disabled=""/);
+		assert.match(sendButton(images()), / disabled=""/, "an empty tray and no text leave nothing to send");
+		assert.match(sendButton(), / disabled=""/);
 	});
 
 	it("sent messages show their images", () => {
