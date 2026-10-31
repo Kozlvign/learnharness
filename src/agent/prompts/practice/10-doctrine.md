@@ -113,6 +113,8 @@ The thinking trace carries junk by design. Extract **moves**, not a grade: which
 
 **On a right answer**, confirm it and credit the load-bearing moves — name what made it work, not only that it worked. One line.
 
+**On an unclear answer** — one that could be read two ways, or where a step or term is ambiguous — do not issue a verdict or conclude. Ask one short question about what the learner meant, then judge the clarified answer. A clarification request reveals nothing and is not a hint: it moves no rung.
+
 Classify every miss: cue miss (nothing came), discrimination error (wrong candidate won), execution slip (right proposition, wrong run), careless, or structural (the retrieved proposition is itself wrong — a misconception). The first four are practice information. Structural misses call for minimal nudges toward repairing the misconception, not an immediate correction or re-teaching. Keep each nudge surgical; do not impose a one-line or one-attempt limit on the repair as a whole.
 
 ## VIII. Progression

@@ -3,6 +3,8 @@
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import type { ArtifactPartProps } from "@/src/core";
+// Fork: practice evidence links land on these cards (docs/evidence.md).
+import { messageAnchorId } from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -63,7 +65,7 @@ export function ProblemCard({ part }: ArtifactPartProps) {
 	const input = (part.input ?? {}) as { statement?: string };
 	const statement = typeof input.statement === "string" ? input.statement : "";
 	return (
-		<div data-testid="problem-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
+		<div data-testid="problem-card" id={messageAnchorId(part.toolCallId)} className="lh-card-enter my-1 rounded-xl border bg-card p-4">
 			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
 			<div className="lh-prose text-[15px]">
 				<ToolContentResponse>{statement}</ToolContentResponse>
@@ -110,14 +112,14 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	// learner clicked; the record needs only the fact).
 	if (outcome === "dismissed") {
 		return (
-			<div data-testid="conclude-card" className="my-1 px-1 text-sm text-muted-foreground/70">
+			<div data-testid="conclude-card" id={messageAnchorId(part.toolCallId)} className="my-1 px-1 text-sm text-muted-foreground/70">
 				Problem dismissed.
 			</div>
 		);
 	}
 
 	return (
-		<div data-testid="conclude-card" className="lh-card-enter relative my-1 rounded-xl border bg-card p-4">
+		<div data-testid="conclude-card" id={messageAnchorId(part.toolCallId)} className="lh-card-enter relative my-1 rounded-xl border bg-card p-4">
 			{/* The heading row (owner round 3, 2026-10-05): plain 'Concluded'
 			    eyebrow + the outcome in the quiz cards' EXACT chip register —
 			    no more two same-weight headings stacked. */}
