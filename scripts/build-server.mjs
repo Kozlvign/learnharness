@@ -69,7 +69,12 @@ for (const secret of ["auth.json", ...subscriptionSecrets, ".env", ".env.local"]
 // generic dist/** earlier broke pi-ai / pi-agent-core's runtime dist/.
 // Never touch ROOT/dist or ROOT/node_modules/electron (the running app
 // and the build runtime); native canvas/resvg packages stay untouched.
-for (const extra of ["dist", path.join("node_modules", "electron")]) {
+// Fork (Claude connection): the Agent SDK's optional per-platform packages
+// bundle a full Claude Code binary (~280 MB). The app runs the user's own
+// installed Claude Code instead, so they never ship.
+const anthropicModules = path.join(STANDALONE, "node_modules", "@anthropic-ai");
+const bundledClaude = exists(anthropicModules) ? fs.readdirSync(anthropicModules).filter((name) => name.startsWith("claude-agent-sdk-")).map((name) => path.join("node_modules", "@anthropic-ai", name)) : [];
+for (const extra of ["dist", path.join("node_modules", "electron"), ...bundledClaude]) {
 	const target = path.join(STANDALONE, extra);
 	if (exists(target)) {
 		fs.rmSync(target, { recursive: true, force: true });

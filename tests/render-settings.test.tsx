@@ -100,12 +100,13 @@ describe("Providers settings-label typography", () => {
 	it("only Providers subscription labels use sans; setup labels retain their compact mono styling", () => {
 		const settings = renderToStaticMarkup(<SubscriptionConnections />);
 		const setup = renderToStaticMarkup(<SubscriptionConnections setup />);
-		for (const label of ["ChatGPT", "GitHub Copilot", "Grok"]) {
+		for (const label of ["Claude", "ChatGPT", "GitHub Copilot", "Grok"]) {
 			assert.ok(settings.includes(`<span class="font-prose text-(length:--lh-prose-size) text-foreground">${label}</span>`), `${label}: settings sans label`);
 			assert.ok(setup.includes(`<span class="font-ui text-xs text-foreground">${label}</span>`), `${label}: unchanged setup label`);
 		}
-		assert.equal((settings.match(/>Connect<\/button>/g) ?? []).length, 3);
-		assert.equal((setup.match(/>Connect<\/button>/g) ?? []).length, 3);
+		// Fork: the Claude row (docs/claude.md) is the fourth connection.
+		assert.equal((settings.match(/>Connect<\/button>/g) ?? []).length, 4);
+		assert.equal((setup.match(/>Connect<\/button>/g) ?? []).length, 4);
 	});
 });
 
