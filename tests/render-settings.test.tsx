@@ -59,6 +59,7 @@ describe("SettingsDialog (the designed surface, SSR)", () => {
 			["agent", "Agent", "bot"],
 			["appearance", "Appearance", "palette"],
 			["graph", "Graph", "waypoints"],
+			["anki", "Anki", "gallery-vertical-end"], // Fork: Anki cards (docs/anki.md).
 			["keyboard", "Keyboard", "keyboard"],
 			["general", "General", "settings"],
 			["core-plugins", "Core plugins", "plug"],

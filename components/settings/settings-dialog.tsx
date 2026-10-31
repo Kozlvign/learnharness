@@ -33,7 +33,7 @@ import {
 	type ReactNode,
 	type RefObject,
 } from "react";
-import { BotIcon, KeyIcon, KeyboardIcon, PaletteIcon, PlugIcon, PuzzleIcon, SettingsIcon, WaypointsIcon, type LucideIcon } from "lucide-react";
+import { BotIcon, GalleryVerticalEndIcon, KeyIcon, KeyboardIcon, PaletteIcon, PlugIcon, PuzzleIcon, SettingsIcon, WaypointsIcon, type LucideIcon } from "lucide-react";
 import { HostDialog } from "@/components/host-dialog";
 import { useInteractionLayers, type CloseOutcome } from "@/components/interaction-layers";
 import {
@@ -62,6 +62,8 @@ import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 import { ClaudeUIProvider } from "./claude-connection.tsx";
 import { LanguageSettings } from "@/components/i18n/language-settings";
+// Fork: Anki cards (docs/anki.md).
+import { AnkiSettings } from "@/components/anki/anki-settings";
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
@@ -71,6 +73,7 @@ const SECTIONS = [
 	{ id: "agent", label: "Agent", icon: BotIcon },
 	{ id: "appearance", label: "Appearance", icon: PaletteIcon },
 	{ id: "graph", label: "Graph", icon: WaypointsIcon },
+	{ id: "anki", label: "Anki", icon: GalleryVerticalEndIcon }, // Fork: Anki cards (docs/anki.md).
 	{ id: "keyboard", label: "Keyboard", icon: KeyboardIcon, hint: "Stored on this device" },
 	{ id: "general", label: "General", icon: SettingsIcon },
 ] as const;
@@ -511,6 +514,12 @@ export function SettingsDialogBody({
 											write("graph", next)
 										}
 									/>
+								</SettingsSection>
+							)}
+							{/* Fork: Anki cards (docs/anki.md). */}
+							{active === "anki" && (
+								<SettingsSection title="Anki" testid="section-anki">
+									<AnkiSettings />
 								</SettingsSection>
 							)}
 							{active === "keyboard" && (
