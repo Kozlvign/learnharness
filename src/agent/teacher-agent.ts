@@ -136,6 +136,12 @@ export interface AgentBuildOptions {
 		questionTypes?: readonly NativePluginQuestionContribution[];
 		problemTypes?: readonly NativePluginProblemContribution[];
 	};
+	// Fork: Anki cards (docs/anki.md).
+	/** Tools added to the teacher's and the practice agent's registry (never
+	 *  the prober's), on top of the default or explicit registry, with the
+	 *  standard argument heal. The chat handler passes anki_card here while
+	 *  the feature is on. */
+	extraTools?: Record<string, AgentTool<any>>;
 	/** The resolved per-user tool toggles (core/pending EnabledTools — the
 	 *  2026-09-19 P2 bridge: Platform's chat-handler passes
 	 *  effective.agent.tools; the factories drop any tool explicitly false.
@@ -353,7 +359,8 @@ export function createTeacherAgent(
 	opts: AgentBuildOptions = {},
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools());
-	return baseAgentOptions("teacher", opts, Object.values(tools), ctx
+	// Fork: Anki cards (docs/anki.md).
+	return baseAgentOptions("teacher", opts, withExtraTools(tools, opts), ctx
 		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false
 		: undefined);
 }
@@ -400,9 +407,16 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
 	// Explicit test registries bypass all builtin construction and contributions.
-	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, Object.values(opts.tools));
+	// Fork: Anki cards (docs/anki.md) ride on top of either registry.
+	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, withExtraTools(opts.tools, opts));
 	const gate = createPracticeGate(ctx);
-	return baseAgentOptions("practice", opts, Object.values(practiceTools(ctx, gate)), undefined, { gate, graphNodes: ctx.graphNodes });
+	return baseAgentOptions("practice", opts, withExtraTools(practiceTools(ctx, gate), opts), undefined, { gate, graphNodes: ctx.graphNodes });
+}
+
+// Fork: Anki cards (docs/anki.md).
+/** A registry with `opts.extraTools` on top, healed like the builtins. */
+function withExtraTools(tools: Record<string, AgentTool<any>>, opts: AgentBuildOptions): AgentTool<any>[] {
+	return Object.values({ ...tools, ...healToolRecord(opts.extraTools ?? {}) });
 }
 
 export type ProberAgent = ReturnType<typeof createProberAgent>;
