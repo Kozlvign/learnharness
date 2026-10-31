@@ -54,6 +54,8 @@ async function fixture(failRead = false) {
 		cancelAnimationFrame: clearTimeout,
 		fetch: async (url: string, init?: RequestInit) => {
 			if (url === "/api/keys") return Response.json({ keys: state.keys, providers: [] });
+			// Fork: local dictation (docs/dictation.md) — Deepgram is the chosen engine here.
+			if (url === "/api/dictation") return Response.json({ settings: { engine: "deepgram" }, model: { state: "missing" } });
 			if (url === "/api/settings") return state.failRead ? Response.json({}, { status: 500 }) : Response.json({ settings: state.record });
 			assert.equal(url, "/api/settings/dictation");
 			const body = JSON.parse(init!.body as string);
@@ -225,7 +227,9 @@ for (const source of ["none", "file", "env"] as const) test(`Language is below t
 	const { KeysSection } = await import("../components/settings/keys-section.tsx");
 	await f.render(<KeysSection />);
 	const group = byTest("group-dictation");
-	const rows = group.lastElementChild!.children;
+	// Fork: the engine row leads the group (docs/dictation.md); upstream's rows follow it.
+	const rows = [...group.lastElementChild!.children].filter((row) => row.getAttribute("data-testid") !== "dictation-engine");
+	assert.equal(group.lastElementChild!.children[0]!.getAttribute("data-testid"), "dictation-engine");
 	assert.equal(rows[0]!.getAttribute("data-testid"), "key-deepgram_api_key");
 	assert.equal(rows[1]!.getAttribute("data-testid"), "row-dictation-language");
 	assert.equal(rows[2]!.getAttribute("data-testid"), "dictation-setup-hint");

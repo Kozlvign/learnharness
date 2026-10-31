@@ -80,6 +80,8 @@ test("Providers is the first/default page; General is last and other pages keep 
 test("Providers has five ordered sections including External CLI; unknown variables stay masked/read-only at the end of Model API keys", async () => {
  globalThis.fetch = async (url) => {
   if (url === "/api/claude-code") return Response.json({ state: "not-found", version: null, minimumVersion: "2.1.259" });
+  // Fork: local dictation (docs/dictation.md) — the Deepgram row shows with Deepgram chosen.
+  if (url === "/api/dictation") return Response.json({ settings: { engine: "deepgram" }, model: { state: "missing" } });
   assert.equal(url, "/api/keys");
   return Response.json({ providers: [{ id: "openai", envVar: "OPENAI_API_KEY", label: "OpenAI" }], keys: [{ id: "FUTURE_VAR", info: null, present: true, masked: "…abcd", source: "file", shadowedByEnv: false }] });
  };
