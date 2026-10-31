@@ -1,5 +1,12 @@
 import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "./opening-prompt";
 
+/** Fork: the opening message, when it is not just the title. A session
+ *  started from images alone is titled "Image" (docs/images.md). */
+interface OpeningMessage {
+	text: string;
+	images: readonly string[];
+}
+
 interface SessionCreation {
 	title: string;
 	kind?: "practice";
@@ -13,8 +20,8 @@ interface SessionCreation {
 export class SessionStarter {
 	private created?: { identity: string; id: string };
 
-	async start(body: SessionCreation, fetchLike: typeof fetch, settingsIdentity?: string): Promise<string> {
-		const identity = JSON.stringify([body, settingsIdentity]);
+	async start(body: SessionCreation, fetchLike: typeof fetch, settingsIdentity?: string, opening?: OpeningMessage): Promise<string> {
+		const identity = JSON.stringify([body, settingsIdentity, opening?.images ?? []]);
 		if (this.created?.identity !== identity) {
 			if (this.created) clearOpeningPrompt(this.created.id);
 			this.created = undefined;
@@ -28,7 +35,7 @@ export class SessionStarter {
 			if (typeof result.id !== "string" || !/^[A-Za-z0-9_-]+$/.test(result.id)) throw new Error(OPENING_PROMPT_FAILURE);
 			this.created = { identity, id: result.id };
 		}
-		if (!stashOpeningPrompt(this.created.id, body.title)) throw new Error(OPENING_PROMPT_FAILURE);
+		if (!stashOpeningPrompt(this.created.id, opening?.text ?? body.title, false, opening?.images)) throw new Error(OPENING_PROMPT_FAILURE);
 		return `/chat/${this.created.id}`;
 	}
 }

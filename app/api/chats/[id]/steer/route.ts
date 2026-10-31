@@ -24,7 +24,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;
 	}
-	const message = newUserSteer(input.text, input.id);
+	const message = newUserSteer(input.text, input.id, input.images);
 	if (!steerLiveChat(id, message)) {
 		return Response.json({ error: "no live turn to steer" }, { status: 409 });
 	}
