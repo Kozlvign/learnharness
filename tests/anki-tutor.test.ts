@@ -299,6 +299,29 @@ describe("createTutorCard", () => {
 		assert.ok(!outcome.text.includes('"Which planet is the largest?"'), "not the one just carded");
 	});
 
+	it("the reminder leaves out probe mistakes: the reserve writer makes their cards", async () => {
+		const probeQuestion = "What is the derivative of a constant?";
+		const chatId = newChat([
+			assistant([call("p1", "probe", { question: probeQuestion, options: OPTIONS, explanation: "A constant does not change.", correctAnswer: "a" })]),
+			result("p1", "probe", {
+				kind: "quiz",
+				tool: "probe",
+				questionText: probeQuestion,
+				options: OPTIONS.map((option, i) => ({ index: i + 1, label: option.label })),
+				dontKnow: true,
+				answers: [],
+				answeredAt: LATER(),
+			}),
+			...wrongQuiz("q1", "Which planet is the largest?"),
+			reply("Jupiter: it is the largest."),
+			...wrongQuiz("q2", "What is the boiling point of water at sea level?"),
+		]);
+		const outcome = await createTutorCard(chatId, "teach", mistake("Which planet is the largest?"), "tc-1");
+		assert.equal(outcome.details.ok, true);
+		assert.match(outcome.text, /- "What is the boiling point of water at sea level\?"/);
+		assert.ok(!outcome.text.includes(probeQuestion), "the probe mistake is not listed");
+	});
+
 	it("a matched mistake waiting for the reserve becomes the tutor's queued card", async () => {
 		const chatId = newChat(wrongQuiz("q1", "Which planet is the largest?"));
 		const key = `${chatId}:q1`;
@@ -402,7 +425,8 @@ describe("the anki_card tool", () => {
 		assert.match(listed, /a wrong answer/);
 		assert.ok(!listed.includes("I don't know"), "a trigger turned off is not listed");
 		assert.ok(!teach.includes("practice problem the learner did not solve"), "practice kinds belong to practice");
-		assert.match(teach, /probe before the lesson/);
+		assert.match(teach, /Mistakes from the probe get their card automatically right after the answer: make none for them\./);
+		assert.ok(!teach.includes("make their card when you teach"), "the teacher no longer cards probe mistakes");
 		const practice = ankiCardDescription({ phase: "practice", triggers, lowConfidenceMax: 30 });
 		assert.match(practice, /did not solve/);
 		assert.match(practice, /R3 or above/);

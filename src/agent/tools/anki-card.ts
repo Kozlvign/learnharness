@@ -4,8 +4,9 @@
  * The teacher and the practice agent write a flashcard for the learner's
  * Anki right after explaining a mistake, or when the learner asks for one.
  * In their registries only while the feature is on (the chat handler passes
- * it through AgentBuildOptions.extraTools); never the prober's, since
- * nothing is explained during the probe.
+ * it through AgentBuildOptions.extraTools); never the prober's: a probe
+ * mistake gets its card from the reserve writer right after the answer,
+ * which shows the correct answer and its explanation.
  *
  * SERVER-SIDE. The execute hands the card to an injected closure (the chat
  * handler binds src/server/anki/tutor.ts createTutorCard to the chat and
@@ -67,7 +68,7 @@ export function ankiCardDescription(ctx: Pick<AnkiCardToolContext, "phase" | "tr
 		? `The mistakes that get a card (the learner's choice): ${kinds.join("; ")}.`
 		: "The learner turned off cards for mistakes here: use the tool only when the learner asks for a card.";
 	const probe = ctx.phase === "teach"
-		? " Mistakes from the probe before the lesson count too: make their card when you teach that idea."
+		? " Mistakes from the probe get their card automatically right after the answer: make none for them."
 		: "";
 	return [
 		"Save a flashcard to the learner's Anki collection. The card shows in the chat and goes to Anki at the end of your reply.",

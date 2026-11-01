@@ -17,6 +17,8 @@ import {
 	type AnkiCardRecord,
 	type AnkiMiss,
 	type AnkiSettings,
+	ankiMissExplainedOnAnswer,
+	missNeedsTeaching,
 } from "../src/core/anki/contract.ts";
 import { ankiCardId, ankiDeckName, ankiNoteFields, ankiTags, markdownToAnkiHtml } from "../src/core/anki/format.ts";
 import { ankiMissesOf, ankiTranscriptExcerpt, ankiTutorRepliedAfter } from "../src/core/anki/misses.ts";
@@ -809,6 +811,23 @@ describe("ankiCardId", () => {
 		assert.notEqual(ankiCardId(key), ankiCardId(`${key}#2`));
 		assert.equal(ankiCardId("ação"), ankiCardId("ação"));
 		assert.notEqual(ankiCardId("ação"), ankiCardId("acao"));
+	});
+
+	it("the barrel's browser copy is the same function", async () => {
+		const { ankiCardId: fromBarrel } = await import("../src/core/index.ts");
+		assert.equal(fromBarrel, ankiCardId);
+	});
+});
+
+describe("which misses wait for the explanation", () => {
+	it("a probe miss is explained with its answer; a prediction waits for the teaching; the rest need neither", () => {
+		assert.equal(ankiMissExplainedOnAnswer({ phase: "probe" }), true);
+		assert.equal(ankiMissExplainedOnAnswer({ phase: "teach" }), false);
+		assert.equal(ankiMissExplainedOnAnswer({ phase: "practice" }), false);
+		assert.equal(missNeedsTeaching({ phase: "probe", questionType: null }), false);
+		assert.equal(missNeedsTeaching({ phase: "teach", questionType: "predict" }), true);
+		assert.equal(missNeedsTeaching({ phase: "teach", questionType: "check" }), false);
+		assert.equal(missNeedsTeaching({ phase: "practice", questionType: null }), false);
 	});
 });
 

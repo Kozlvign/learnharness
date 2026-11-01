@@ -13,8 +13,9 @@
  *      ANKI_WRITER_BATCH) to write, wait or skip each one that is due: not
  *      before the tutor has had ANKI_TUTOR_GRACE_REPLIES replies to make its
  *      card, not before the tutor has replied to it, not before a teach chat's probe
- *      is done for probe and predict misses, and again only after
- *      ANKI_RECHECK_MESSAGES new messages;
+ *      is done for predict misses, and again only after
+ *      ANKI_RECHECK_MESSAGES new messages. A probe miss is due at once
+ *      (`ankiMissExplainedOnAnswer`);
  *   3. flush: send every queued card of every chat to Anki through
  *      AnkiConnect. Anki closed (or not set up) = the cards stay queued for
  *      the next run; only a note Anki refuses counts as a failed attempt.
@@ -24,7 +25,9 @@
  * flushes never overlap. Errors are logged; a run never rejects.
  *
  * Triggered by the event bus (`turn-settled`, `record-changed`), debounced
- * per chat; `registerAnkiPipeline()` subscribes once per process. This
+ * per chat; `registerAnkiPipeline()` subscribes once per process. The
+ * ledger store announces each change to a chat's records on the same bus
+ * (`anki-changed`, ./store.ts); the pipeline never listens to it. This
  * module is loaded on the first event while the feature is on (./trigger.ts,
  * set up by the root instrumentation.ts). `createAnkiPipeline(deps)` takes
  * every dependency,
@@ -45,6 +48,7 @@ import {
 	ANKI_REASONS,
 	ANKI_RECHECK_MESSAGES,
 	ANKI_TUTOR_GRACE_REPLIES,
+	ankiMissExplainedOnAnswer,
 	missNeedsTeaching,
 	type AnkiCardDraft,
 	type AnkiCardRecord,
@@ -397,20 +401,22 @@ export function createAnkiPipeline(deps: AnkiPipelineDeps): AnkiPipeline {
 		// Due for the writer: the tutor had its grace replies to make the card
 		// itself; the tutor has replied to it (an answer can be
 		// saved before the reply, and a failed turn may settle with none); a
-		// teach chat still probing has taught nothing yet, so its probe and
-		// predict misses wait for the probe to finish; a miss the writer saw
-		// is looked at again only after a few more messages. Not due =
-		// nothing changes.
+		// teach chat still probing has taught nothing yet, so its predict
+		// misses wait for the probe to finish; a miss the writer saw is
+		// looked at again only after a few more messages. A probe miss is due
+		// at once: the probe showed its correct answer and explanation with
+		// the answer, and the teacher makes no card for it. Not due = nothing
+		// changes.
 		const probing = record.kind !== "practice" && !hasProbeDone(record.messages);
 		const length = record.messages.length;
 		const evaluable = waiting
 			.filter((card) => card.checkedAt === undefined || length - card.checkedAt >= ANKI_RECHECK_MESSAGES)
 			.flatMap((card) => byKey.get(card.key) ?? [])
 			.filter((miss) => !(probing && missNeedsTeaching(miss)))
-			.filter((miss) => miss.phase === "practice" || repliedAfter(record, miss))
+			.filter((miss) => miss.phase === "practice" || ankiMissExplainedOnAnswer(miss) || repliedAfter(record, miss))
 			// The reserve: the tutor makes the card itself while it explains;
 			// the writer takes the miss only after the tutor's grace replies.
-			.filter((miss) => repliesAfter(record, miss) >= ANKI_TUTOR_GRACE_REPLIES)
+			.filter((miss) => ankiMissExplainedOnAnswer(miss) || repliesAfter(record, miss) >= ANKI_TUTOR_GRACE_REPLIES)
 			.sort((a, b) => a.messageIndex - b.messageIndex);
 		if (evaluable.length === 0) return;
 
