@@ -1,7 +1,9 @@
 /**
  * The Anki card writer (fork feature, docs/anki.md), the reserve: the tutor
  * writes most cards itself (the anki_card tool); this writer takes the
- * misses the tutor left without one. One small background model call per
+ * misses the tutor left without one, and every probe miss, right after the
+ * answer (the probe showed the correct answer and its explanation, so the
+ * teacher makes no card for it). One small background model call per
  * batch of a chat's waiting misses. For each miss it decides
  * "card" (and writes it), "wait" (the correct idea is not explained in the
  * transcript yet) or "skip" (no real miss, or nothing worth a card).
@@ -66,7 +68,7 @@ Add nothing the session has not explained. Write the card in the learner's langu
 export const ANKI_WRITER_INSTRUCTIONS = `You are the reserve flashcard writer of a learning application. The tutor makes a flashcard for each learner mistake as it explains it; you receive the misses of a tutoring session that the tutor left without a card. For each miss you receive the question, the correct answer, the learner's answer and an excerpt of the session transcript after it. Decide, for every miss, whether it becomes one flashcard in the learner's Anki collection, and write that card.
 
 THE MISSES. Each one arrives as <miss id="…"> with a JSON block of fields and a <transcript> excerpt:
-- phase: probe (a diagnostic question before any teaching), teach (a check during the lesson) or practice (a practice problem).
+- phase: probe (a diagnostic question before any teaching; its correct answer and explanation were shown to the learner right after the answer), teach (a check during the lesson) or practice (a practice problem).
 - kind: wrong (a multiple-choice answer graded wrong), dontKnow ("I don't know"), lowConfidence (a right answer given as a guess), freeText (a free-text answer that carries no grade), practiceNotSolved (a practice problem the learner did not solve), practiceHeavyHint (solved only with heavy hints).
 - questionType: predict (asked before the idea was taught) or check (asked after). planNode: the lesson step it belongs to.
 - question, options (multiple choice only), correctAnswer (for practice: the model solution), explanation (for practice: the tutor's verdict).
@@ -79,6 +81,7 @@ THE DECISION, exactly one per miss id:
 - "wait": the correct idea has not been explained yet. A miss with needsTeaching true gets "wait" unless the transcript explains the correct idea. Never write a card for something the tutor has not explained. Give a short reason.
 - "skip": not a real miss, or nothing worth a card. Give a short reason.
 A freeText answer has no grade: judge it against correctAnswer (the answer the tutor committed to) and the tutor's reply in the transcript. Write a card only when the answer is clearly wrong or partial. When it is right, or you cannot tell, "skip".
+In the probe the tutor does not grade answers: judge a probe freeText answer against correctAnswer alone.
 
 ${ANKI_CARD_RULES}
 

@@ -88,6 +88,8 @@ import {
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
+// Fork: Anki cards (docs/anki.md).
+import { AnkiQuestionCard } from "@/components/anki/anki-question-card";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */
 /**
@@ -1627,7 +1629,16 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
+																<AnsweredCard
+																	key={pi}
+																	answer={part.output as QuestionAnswerData}
+																	input={part.input}
+																	// Fork: Anki cards (docs/anki.md): a probe mistake's card,
+																	// written right after the answer.
+																	footer={(part.type === "tool-probe" || part.type === "tool-recall") && part.toolCallId
+																		? <AnkiQuestionCard chatId={chatId} toolCallId={part.toolCallId} />
+																		: undefined}
+																/>
 															);
 														}
 														return null;

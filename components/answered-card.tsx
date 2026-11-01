@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
@@ -19,8 +19,11 @@ import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core
  * Explain answers are graded by the MODEL in its next reply, not by the
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
+ *
+ * Fork: Anki cards (docs/anki.md). `footer` closes the card: a probe
+ * question's Anki card (components/anki/anki-question-card.tsx).
  */
-export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown }) {
+export function AnsweredCard({ answer: savedAnswer, input, footer }: { answer: QuestionAnswerData; input?: unknown; footer?: ReactNode }) {
 	const answer = answerForPresentation(savedAnswer, input);
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
@@ -230,6 +233,8 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{answer.committed}</ToolContentResponse>
 				</div>
 			)}
+			{/* Fork: Anki cards (docs/anki.md). */}
+			{footer}
 		</div>
 		</>
 	);

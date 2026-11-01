@@ -52,6 +52,9 @@ export interface ServerEvents {
 	 *  the chat; the client mirrors it by disabling the composer/dock
 	 *  submit. */
 	"compaction-changed": { chatId: string; running: boolean };
+	/** Fork: Anki cards (docs/anki.md). A chat's records in the card ledger
+	 *  changed: an open view of the chat re-reads the cards it shows. */
+	"anki-changed": { chatId: string };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -69,6 +72,8 @@ export const SERVER_EVENT_TYPES = [
 	"subscriptions-changed",
 	"record-changed",
 	"compaction-changed",
+	// Fork: Anki cards (docs/anki.md).
+	"anki-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */
