@@ -123,3 +123,4 @@ export * from "./dictation-local.ts";
 export * from "./anki/contract.ts";
 export { isLoopbackAnkiUrl, parseAnkiSettings } from "./anki/settings.ts";
 export { ankiCardToolInputSchema, parseAnkiCardToolInput } from "./anki/tool.ts";
+export { ankiCardId } from "./anki/id.ts";

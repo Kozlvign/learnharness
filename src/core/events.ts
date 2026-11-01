@@ -40,6 +40,9 @@ export interface ServerEvents {
 	"plugins-changed": Record<string, never>;
 	/** Live-only, plugin-scoped notifications. Reconnect requires snapshot resync. */
 	"plugin-message": { pluginId: string; topic: string; data?: unknown };
+	/** Fork: Anki cards (docs/anki.md). A chat's records in the card ledger
+	 *  changed: an open view of the chat re-reads the cards it shows. */
+	"anki-changed": { chatId: string };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -60,6 +63,8 @@ export const SERVER_EVENT_TYPES = [
 	"side-chats-changed",
 	"plugins-changed",
 	"plugin-message",
+	// Fork: Anki cards (docs/anki.md).
+	"anki-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: distribute over the vocabulary so narrowing `type`
