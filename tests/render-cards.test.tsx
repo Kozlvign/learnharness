@@ -363,6 +363,18 @@ describe("render smoke tests", () => {
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 		assert.match(html, /skipped/);
 	});
+
+	// Fork: Anki cards (docs/anki.md): a probe question's Anki card closes it.
+	it("AnsweredCard closes with its footer; a skipped answer shows none", () => {
+		const answer = buildAnswer(quizQD(), { values: ["Venus"] });
+		const footer = <span data-testid="answered-footer">card</span>;
+		const html = renderToStaticMarkup(<AnsweredCard answer={answer} footer={footer} />);
+		const card = html.indexOf('data-testid="answered-card"');
+		assert.ok(card >= 0 && html.indexOf('data-testid="answered-footer"') > html.indexOf('data-testid="tucked-explanation"'), "inside the card, after the explanation");
+		assert.ok(html.endsWith("card</span></div>"), "the card's last child");
+		const skipped = renderToStaticMarkup(<AnsweredCard answer={{ ...answer, dismissed: true }} footer={footer} />);
+		assert.ok(!skipped.includes("answered-footer"));
+	});
 });
 
 describe("math rendering (streamdown + KaTeX)", () => {

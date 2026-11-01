@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -39,8 +39,11 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
  * Explain answers are graded by the MODEL in its next reply, not by the
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
+ *
+ * Fork: Anki cards (docs/anki.md). `footer` closes the card: a probe
+ * question's Anki card (components/anki/anki-question-card.tsx).
  */
-export function AnsweredCard({ answer: savedAnswer, input, toolCallId }: { answer: QuestionAnswerData; input?: unknown; toolCallId?: string }) {
+export function AnsweredCard({ answer: savedAnswer, input, toolCallId, footer }: { answer: QuestionAnswerData; input?: unknown; toolCallId?: string; footer?: ReactNode }) {
 	const answer = answerForPresentation(savedAnswer, input);
 	const optionLetters = answeredOptionLetters(savedAnswer, input);
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
@@ -337,6 +340,8 @@ export function AnsweredCard({ answer: savedAnswer, input, toolCallId }: { answe
 					<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{answer.committed}</ToolContentResponse>
 				</div>
 			)}
+			{/* Fork: Anki cards (docs/anki.md). */}
+			{footer}
 		</div>
 		</>
 	);

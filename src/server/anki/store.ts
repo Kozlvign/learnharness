@@ -11,6 +11,7 @@ import { rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PATHS } from "../../../config.ts";
 import { ANKI_CARD_STATUSES, DEFAULT_ANKI_SETTINGS, type AnkiCardRecord, type AnkiLedger, type AnkiSettings } from "../../core/anki/contract.ts";
+import { emit } from "../../core/events.ts";
 import { parseAnkiSettings } from "../../core/anki/settings.ts";
 
 const SETTINGS = Symbol.for("lh.anki.settings");
@@ -169,20 +170,40 @@ async function writeLedger(ledger: AnkiLedger): Promise<void> {
 	}
 }
 
+type RecordSnapshot = Map<string, { chatId: string; text: string }>;
+
+function recordSnapshot(cards: readonly AnkiCardRecord[]): RecordSnapshot {
+	return new Map(cards.map((card) => [card.id, { chatId: card.chatId, text: JSON.stringify(card) }]));
+}
+
+/** The chats with a record added, changed or gone between two snapshots. */
+function changedChats(before: RecordSnapshot, after: RecordSnapshot): Set<string> {
+	const chats = new Set<string>();
+	for (const [id, record] of after) if (before.get(id)?.text !== record.text) chats.add(record.chatId);
+	for (const [id, record] of before) if (!after.has(id)) chats.add(record.chatId);
+	return chats;
+}
+
 /**
  * Read the ledger fresh, let `mutate` change it in place, write it back
  * atomically, and return what `mutate` returned. Calls run one at a time,
  * in call order, across every caller in the process. A `mutate` that throws
  * writes nothing and rejects; the next call still runs. An unchanged ledger
- * is not rewritten.
+ * is not rewritten. Once written, each chat whose records changed is
+ * announced on the event bus (`anki-changed`), so an open chat re-reads the
+ * cards it shows.
  */
 export function updateAnkiLedger<T>(mutate: (ledger: AnkiLedger) => T | Promise<T>): Promise<T> {
 	const previous = globalState[LEDGER_CHAIN] ?? Promise.resolve();
 	const run = previous.then(async () => {
 		const ledger = readAnkiLedger();
 		const before = serialized(ledger);
+		const records = recordSnapshot(ledger.cards);
 		const result = await mutate(ledger);
-		if (serialized({ version: 1, cards: ledger.cards }) !== before) await writeLedger(ledger);
+		if (serialized({ version: 1, cards: ledger.cards }) !== before) {
+			await writeLedger(ledger);
+			for (const chatId of changedChats(records, recordSnapshot(ledger.cards))) emit("anki-changed", { chatId });
+		}
 		return result;
 	});
 	globalState[LEDGER_CHAIN] = run.catch(() => undefined);

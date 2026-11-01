@@ -650,6 +650,34 @@ describe("Anki card ledger", () => {
 		assert.equal(fs.statSync(store.ankiLedgerFile()).mtimeMs, pinned.getTime());
 	});
 
+	it("a written update announces each chat whose records changed, once; an unchanged one announces nothing", async () => {
+		const { subscribe } = await import("../src/core/events.ts");
+		writeLedger([cardRecord(), cardRecord({ id: "2222222222222222", key: "chat-2:call-1", chatId: "chat-2" })]);
+		const heard: string[] = [];
+		const off = subscribe((event) => {
+			const chatId = (event as { chatId?: unknown }).chatId;
+			if (event.type === "anki-changed" && typeof chatId === "string") heard.push(chatId);
+		});
+		try {
+			await store.updateAnkiLedger((ledger) => {
+				ledger.cards[0]!.status = "queued";
+				ledger.cards.push(cardRecord({ id: "3333333333333333", key: "chat-3:call-1", chatId: "chat-3" }));
+				ledger.cards.push(cardRecord({ id: "4444444444444444", key: "chat-3:call-2", chatId: "chat-3" }));
+			});
+			assert.deepEqual(heard.sort(), [cardRecord().chatId, "chat-3"].sort(), "chat-2 did not change");
+			heard.length = 0;
+			await store.updateAnkiLedger((ledger) => ledger.cards.length);
+			assert.deepEqual(heard, []);
+			await assert.rejects(store.updateAnkiLedger((ledger) => {
+				ledger.cards[1]!.status = "sent";
+				throw new Error("nothing written");
+			}));
+			assert.deepEqual(heard, [], "a failed update announces nothing");
+		} finally {
+			off();
+		}
+	});
+
 	it("concurrent updates never interleave and run in call order", async () => {
 		let active = 0;
 		let overlapped = false;

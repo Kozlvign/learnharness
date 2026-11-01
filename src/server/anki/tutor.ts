@@ -25,6 +25,7 @@ import {
 	type AnkiLedger,
 	type AnkiMiss,
 	type AnkiPhase,
+	ankiMissExplainedOnAnswer,
 	CONFIDENT_ERROR_MIN,
 } from "../../core/anki/contract.ts";
 import { ankiCardId, ankiDeckName, ankiTags } from "../../core/anki/format.ts";
@@ -150,11 +151,12 @@ function clip(text: string, max: number): string {
 }
 
 /** The misses still without a card (no record, or one still waiting),
- *  newest first; free-text answers last (they may have been right). */
+ *  newest first; free-text answers last (they may have been right). Probe
+ *  misses are left out: the reserve writer makes their cards. */
 function reminder(misses: readonly AnkiMiss[], ledger: AnkiLedger, except: string | null): string {
 	const byMiss = ankiRecordsByMiss(ledger);
 	const open = misses
-		.filter((miss) => miss.key !== except && miss.question.trim() !== "")
+		.filter((miss) => miss.key !== except && miss.question.trim() !== "" && !ankiMissExplainedOnAnswer(miss))
 		.filter((miss) => {
 			const card = byMiss.get(miss.key);
 			return !card || card.status === "waiting";

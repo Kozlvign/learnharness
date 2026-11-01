@@ -128,6 +128,8 @@ import {
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
+// Fork: Anki cards (docs/anki.md).
+import { AnkiQuestionCard } from "@/components/anki/anki-question-card";
 
 /**
  * Width tokens (wave-5 reskin, owner decision): the teaching PROSE spans the
@@ -2002,7 +2004,17 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} toolCallId={part.toolCallId} />
+																<AnsweredCard
+																	key={pi}
+																	answer={part.output as QuestionAnswerData}
+																	input={part.input}
+																	toolCallId={part.toolCallId}
+																	// Fork: Anki cards (docs/anki.md): a probe mistake's card,
+																	// written right after the answer.
+																	footer={(part.type === "tool-probe" || part.type === "tool-recall") && part.toolCallId
+																		? <AnkiQuestionCard chatId={chatId} toolCallId={part.toolCallId} />
+																		: undefined}
+																/>
 															);
 														}
 														return null;
