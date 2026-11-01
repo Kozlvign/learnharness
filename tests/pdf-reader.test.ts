@@ -236,3 +236,109 @@ describe("pdf-reader loop (faux engine)", () => {
 		assert.deepEqual(result.pagesConsulted, []);
 	});
 });
+
+// Fork: the reading budget. A broad question on a long book used every turn
+// reading and ended with no brief, losing all it had read.
+describe("pdf-reader reading budget (faux engine)", () => {
+	/** Each model call's context as JSON: what the reader sent. */
+	function recordContexts(engine: PiEngine): string[] {
+		const contexts: string[] = [];
+		const stream = engine.streamFn;
+		engine.streamFn = (...args) => {
+			contexts.push(JSON.stringify(args[1]));
+			return stream(...args);
+		};
+		return contexts;
+	}
+	const extract = (page: number) =>
+		fauxAssistantMessage([fauxToolCall("pdf_extract", { pages: String(page) }, { id: `e${page}` })], { stopReason: "toolUse" });
+	const FINAL = "This is your last turn";
+
+	it("the default budget is 20 turns, and the reader is told so", async () => {
+		const engine = fauxEngine([extract(1), fauxAssistantMessage([fauxText("Brief (p. 1).")])]);
+		const contexts = recordContexts(engine);
+		const result = await runPdfReaderAgent({ path: FIXTURE, question: "anything" }, { engine });
+		assert.equal(result.brief, "Brief (p. 1).");
+		assert.match(contexts[0]!, /Budget: at most 20 model turns in total, and the last one is reserved for your brief/);
+	});
+
+	it("a reader that keeps reading is warned with 3 turns left, then writes its brief on the last turn", async () => {
+		const engine = fauxEngine([
+			extract(1),
+			extract(2),
+			extract(3),
+			extract(1),
+			fauxAssistantMessage([fauxText("Partial brief (p. 1). Not covered: the rest. Pages consulted: 1, 2, 3")]),
+		]);
+		const contexts = recordContexts(engine);
+		const result = await runPdfReaderAgent({ path: FIXTURE, question: "everything" }, { engine, maxIterations: 5 });
+		assert.match(result.brief, /^Partial brief/);
+		assert.deepEqual(result.pagesRead, [1, 2, 3]);
+		assert.equal(contexts.length, 5);
+		assert.match(contexts[0]!, /Budget: at most 5 model turns/);
+		const warned = contexts.map((context) => context.includes("You have 3 turns left, the last one for the brief: finish your reading in the next 2."));
+		assert.deepEqual(warned, [false, false, true, true, true], "the warning arrives before the third-from-last turn");
+		const final = contexts.map((context) => context.includes(FINAL));
+		assert.deepEqual(final, [false, false, false, false, true], "the brief is asked for before the last turn only");
+	});
+
+	it("the brief request rides the same message as the pages rendered just before it", async () => {
+		const engine = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("pdf_render", { pages: "2" }, { id: "r1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Brief from the render (p. 2).")]),
+		]);
+		const contexts = recordContexts(engine);
+		const result = await runPdfReaderAgent({ path: FIXTURE, question: "page 2?" }, { engine, headless: fakeHeadless(), maxIterations: 2 });
+		assert.equal(result.brief, "Brief from the render (p. 2).");
+		const messages = (JSON.parse(contexts[1]!) as { messages: Array<{ role: string; content: unknown }> }).messages;
+		const last = messages.at(-1)!;
+		assert.equal(last.role, "user");
+		const texts = (last.content as Array<{ type: string; text?: string }>).filter((part) => part.type === "text").map((part) => part.text ?? "");
+		assert.match(texts[0]!, /^The rendered page\(s\), in order \(p2\)/);
+		assert.match(texts.at(-1)!, new RegExp(`^${FINAL}`), "the request closes the same message, after the pages");
+	});
+
+	it("the last turn's tool calls never run; a brief written beside them still counts", async () => {
+		const activity: string[] = [];
+		const engine = fauxEngine([
+			extract(1),
+			extract(2),
+			fauxAssistantMessage([fauxText("Brief from pages 1 and 2 (p. 1)."), fauxToolCall("pdf_extract", { pages: "3" }, { id: "e3" })], {
+				stopReason: "toolUse",
+			}),
+		]);
+		const result = await runPdfReaderAgent(
+			{ path: FIXTURE, question: "anything" },
+			{ engine, maxIterations: 3, onActivity: (line) => activity.push(line) },
+		);
+		assert.equal(result.brief, "Brief from pages 1 and 2 (p. 1).");
+		assert.deepEqual(activity, ["pdf_extract: 1", "pdf_extract: 2"]);
+		assert.deepEqual(result.pagesRead, [1, 2]);
+	});
+
+	it("a reader that ignores the last turn fails as before, and its last call is not run", async () => {
+		const activity: string[] = [];
+		const engine = fauxEngine([extract(1), extract(2), extract(3)]);
+		const result = await runPdfReaderAgent(
+			{ path: FIXTURE, question: "anything" },
+			{ engine, maxIterations: 3, onActivity: (line) => activity.push(line) },
+		);
+		assert.equal(result.brief, "PDF failed: iteration limit (3) reached without a brief.");
+		assert.deepEqual(activity, ["pdf_extract: 1", "pdf_extract: 2"]);
+		assert.deepEqual(result.pagesRead, [1, 2]);
+	});
+
+	it("nothing consulted by the last turn: no brief is asked for, and text written then is never delivered", async () => {
+		const engine = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("pdf_info", {}, { id: "i1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("pdf_info", {}, { id: "i2" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("The answer is 42, trust me.")]),
+		]);
+		const contexts = recordContexts(engine);
+		const result = await runPdfReaderAgent({ path: FIXTURE, question: "anything" }, { engine, maxIterations: 3 });
+		assert.equal(result.brief, "PDF failed: iteration limit (3) reached without a brief.");
+		assert.ok(!contexts.some((context) => context.includes(FINAL)));
+		assert.deepEqual(result.pagesConsulted, []);
+	});
+});
+

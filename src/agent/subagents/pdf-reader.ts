@@ -57,7 +57,25 @@ Your FINAL assistant message is your entire deliverable — it must stand alone,
 claim cited as (p. N). End with a line "Pages consulted: N, N, …" listing every page you
 extracted or rendered.`;
 
-const MAX_ITERATIONS = 14;
+// Fork: the reading budget. 14 turns left a broad question on a long book
+// with nothing: every turn went to reading and the brief was never written,
+// so all of it was lost. The reader now knows its budget, is warned when
+// BUDGET_WARNING_TURNS are left, and the last turn is reserved for the brief.
+const MAX_ITERATIONS = 20;
+/** The warning comes when this many turns are left, the brief's included. */
+const BUDGET_WARNING_TURNS = 3;
+
+function budgetLine(maxIterations: number): string {
+	return `Budget: at most ${maxIterations} model turns in total, and the last one is reserved for your brief. For a broad question on a long document, cover the most important parts first.`;
+}
+
+function budgetWarning(turnsLeft: number): string {
+	return `You have ${turnsLeft} turns left, the last one for the brief: finish your reading in the next ${turnsLeft - 1}.`;
+}
+
+const FINAL_TURN_MESSAGE =
+	'This is your last turn. Do not call any tool: write your final brief now from the pages you consulted, in the required format. Add a line "Not covered: …" before "Pages consulted" naming the parts of the question you could not reach.';
+
 /** Rendered pages per pdf_render call — the skill renders selectively; a
  *  batch cap keeps one over-eager call from flooding the vision context. */
 const RENDER_BATCH_CAP = 6;
@@ -194,6 +212,9 @@ export async function runPdfReaderAgent(
 		`PDF path: ${pdfPath}`,
 		`Question (what the teacher needs from this document): ${input.question || "(no question — give a structural overview)"}`,
 		"",
+		// Fork: the reading budget.
+		budgetLine(maxIterations),
+		"",
 		"Read the document per your doctrine, then produce your final brief in the required format.",
 	].join("\n");
 
@@ -210,6 +231,8 @@ export async function runPdfReaderAgent(
 
 	try {
 		for (let iteration = 0; iteration < maxIterations; iteration++) {
+			// Fork: the reading budget. No turn follows the last one.
+			const lastTurn = iteration === maxIterations - 1;
 			const result = await streamOnce(
 				streamEngine,
 				INSTRUCTIONS,
@@ -228,17 +251,20 @@ export async function runPdfReaderAgent(
 			const toolCalls = result.content.filter(
 				(c): c is Extract<typeof c, { type: "toolCall" }> => c.type === "toolCall",
 			);
+			const text = result.content
+				.filter((c): c is { type: "text"; text: string } => c.type === "text")
+				.map((c) => c.text)
+				.join("")
+				.trim();
 			if (toolCalls.length === 0) {
-				finalText = result.content
-					.filter((c): c is { type: "text"; text: string } => c.type === "text")
-					.map((c) => c.text)
-					.join("")
-					.trim();
+				finalText = text;
 				// The gate stays on CONSULTED, not read: search-hit context
 				// lines are genuine consultation (anti-fabrication duty) — a
 				// search-only brief is honest. pagesRead is the UI's honest
 				// count, not a delivery gate.
 				if (consulted.size === 0 && !nudged) {
+					// Fork: no turn left for the nudge; the failure below, never invention.
+					if (lastTurn) break;
 					nudged = true;
 					messages = [
 						...messages,
@@ -247,6 +273,13 @@ export async function runPdfReaderAgent(
 					continue;
 				}
 				return { path: pdfPath, question: input.question, brief: finalText || "(no brief text)", pagesRead: [...read].sort((a, b) => a - b), pagesConsulted: [...consulted].sort((a, b) => a - b) };
+			}
+			// Fork: the reading budget. The last turn's tool calls never run (no
+			// turn is left to read their results); a brief written beside them
+			// still counts.
+			if (lastTurn) {
+				finalText = text;
+				break;
 			}
 
 			const toolResults: ToolResultMessage[] = [];
@@ -327,26 +360,29 @@ export async function runPdfReaderAgent(
 
 			for (const result of toolResults) capture?.toolResult(result);
 			messages = [...messages, ...toolResults];
+			const followUp: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
 			if (renderedImages) {
-				messages = [
-					...messages,
+				followUp.push(
 					{
-						role: "user",
-						content: [
-							{
-								type: "text",
-								text: `The rendered page(s), in order (${renderedImages.map((p) => `p${p.page}`).join(", ")}):`,
-							},
-							...renderedImages.flatMap(({ page, image }) => image.ok
-								? [
-									{ type: "text" as const, text: [`Page ${page}`, ...image.hints].join("\n") },
-									{ type: "image" as const, data: image.data, mimeType: image.mimeType },
-								]
-								: [{ type: "text" as const, text: `Page ${page}: ${image.message}` }]),
-						],
-						timestamp: Date.now(),
+						type: "text",
+						text: `The rendered page(s), in order (${renderedImages.map((p) => `p${p.page}`).join(", ")}):`,
 					},
-				];
+					...renderedImages.flatMap(({ page, image }) => image.ok
+						? [
+							{ type: "text" as const, text: [`Page ${page}`, ...image.hints].join("\n") },
+							{ type: "image" as const, data: image.data, mimeType: image.mimeType },
+						]
+						: [{ type: "text" as const, text: `Page ${page}: ${image.message}` }]),
+				);
+			}
+			// Fork: the reading budget, after the pages it may refer to. The
+			// brief is asked for only once something was consulted: before
+			// that it would be invention.
+			const turnsLeft = maxIterations - iteration - 1;
+			if (turnsLeft === 1 && consulted.size > 0) followUp.push({ type: "text", text: FINAL_TURN_MESSAGE });
+			else if (turnsLeft === BUDGET_WARNING_TURNS) followUp.push({ type: "text", text: budgetWarning(turnsLeft) });
+			if (followUp.length > 0) {
+				messages = [...messages, { role: "user", content: followUp, timestamp: Date.now() }];
 			}
 		}
 	} catch (err) {
@@ -361,7 +397,8 @@ export async function runPdfReaderAgent(
 	return {
 		path: pdfPath,
 		question: input.question,
-		brief: finalText || `PDF failed: iteration limit (${maxIterations}) reached without a brief.`,
+		// Fork: text with nothing consulted is invention, never a brief.
+		brief: finalText && consulted.size > 0 ? finalText : `PDF failed: iteration limit (${maxIterations}) reached without a brief.`,
 		pagesRead: [...read].sort((a, b) => a - b),
 		pagesConsulted: [...consulted].sort((a, b) => a - b),
 	};
