@@ -4,7 +4,8 @@
  * `anki_card` tool part. Collapsed, the front; expanded, the back, why and
  * pitfall, where the card stands (read from the ledger with
  * GET /api/anki/cards/<id>), and Remove with the same two-step confirm as
- * Settings → Anki.
+ * Settings → Anki. The same view, inline, shows a probe question's card
+ * inside its answered card (./anki-question-card.tsx).
  *
  * Parse, don't cast (src/core/tool-parts.ts): the input is the model's and
  * shows only if the tool's own schema parses it; the output is ours. A
@@ -62,13 +63,20 @@ export interface AnkiCardChipViewProps {
 	onRemoveAsk: (asking: boolean) => void;
 	/** Confirm pressed. */
 	onRemove: () => void;
+	/** Inside another card (a probe question's): no frame of its own, and
+	 *  collapsed it is the header line alone, the front shows on expand. */
+	inline?: boolean;
 }
 
-export function AnkiCardChipView({ input, open, record, confirming, busy, error, onToggle, onRemoveAsk, onRemove }: AnkiCardChipViewProps) {
+export function AnkiCardChipView({ input, open, record, confirming, busy, error, onToggle, onRemoveAsk, onRemove, inline = false }: AnkiCardChipViewProps) {
 	const canRemove = !!record && ankiCardCanRemove(record);
 	const reason = record ? ankiCardReason(record) : null;
 	return (
-		<div data-testid="anki-card-chip" data-status={record?.status} className="lh-card-enter my-1 w-full max-w-2xl rounded-xl border bg-card p-3">
+		<div
+			data-testid={inline ? "anki-question-card" : "anki-card-chip"}
+			data-status={record?.status}
+			className={inline ? "mt-3 border-t pt-2" : "lh-card-enter my-1 w-full max-w-2xl rounded-xl border bg-card p-3"}
+		>
 			<button
 				type="button"
 				aria-expanded={open}
@@ -82,9 +90,11 @@ export function AnkiCardChipView({ input, open, record, confirming, busy, error,
 				)}
 				<ChevronRight aria-hidden="true" className={cn("ml-auto size-3 shrink-0 opacity-50 transition-transform", open && "rotate-90")} />
 			</button>
-			<div className="mt-1.5 text-[15px]" data-testid="anki-card-chip-front">
-				<ToolContentResponse>{input.front}</ToolContentResponse>
-			</div>
+			{(!inline || open) && (
+				<div className="mt-1.5 text-[15px]" data-testid="anki-card-chip-front">
+					<ToolContentResponse>{input.front}</ToolContentResponse>
+				</div>
+			)}
 			{open && (
 				<div className="mt-2 space-y-2 border-t pt-2" data-testid="anki-card-chip-details">
 					{input.back.trim() && (
@@ -146,6 +156,28 @@ export function AnkiCardChip({ part }: ArtifactPartProps) {
 }
 
 function AnkiCardChipLive({ input, cardId }: { input: AnkiCardToolInput; cardId: string }) {
+	const live = useAnkiCardLive(cardId);
+	const rechecked = useRef(false);
+
+	// One more look while the card waits to reach Anki.
+	const status = live.record?.status;
+	const { read } = live;
+	useEffect(() => {
+		if ((status !== "queued" && status !== "waiting") || rechecked.current) return;
+		const timer = setTimeout(() => {
+			rechecked.current = true;
+			void read();
+		}, ANKI_CHIP_RECHECK_MS);
+		return () => clearTimeout(timer);
+	}, [status, read]);
+
+	return <AnkiCardChipView input={input} {...live.viewProps} />;
+}
+
+/** A card's ledger record, read on mount, and the view's open / Remove
+ *  state: the tutor's card in the chat and a probe question's card share
+ *  it. `read` asks again (only the newest answer is shown). */
+export function useAnkiCardLive(cardId: string) {
 	const [open, setOpen] = useState(false);
 	const [record, setRecord] = useState<AnkiCardRecord | null | undefined>(undefined);
 	const [confirming, setConfirming] = useState(false);
@@ -154,7 +186,6 @@ function AnkiCardChipLive({ input, cardId }: { input: AnkiCardToolInput; cardId:
 	const alive = useRef(true);
 	// Only the newest request's answer is shown.
 	const latest = useRef(0);
-	const rechecked = useRef(false);
 
 	const read = useCallback(async () => {
 		const ticket = ++latest.current;
@@ -175,17 +206,6 @@ function AnkiCardChipLive({ input, cardId }: { input: AnkiCardToolInput; cardId:
 		};
 	}, [read]);
 
-	// One more look while the card waits to reach Anki.
-	const status = record?.status;
-	useEffect(() => {
-		if ((status !== "queued" && status !== "waiting") || rechecked.current) return;
-		const timer = setTimeout(() => {
-			rechecked.current = true;
-			void read();
-		}, ANKI_CHIP_RECHECK_MS);
-		return () => clearTimeout(timer);
-	}, [status, read]);
-
 	const remove = async () => {
 		setConfirming(false);
 		setBusy(true);
@@ -202,23 +222,21 @@ function AnkiCardChipLive({ input, cardId }: { input: AnkiCardToolInput; cardId:
 		}
 	};
 
-	return (
-		<AnkiCardChipView
-			input={input}
-			open={open}
-			record={record}
-			confirming={confirming}
-			busy={busy}
-			error={error}
-			onToggle={() => {
-				if (!open) void read();
-				setOpen(!open);
-			}}
-			onRemoveAsk={(asking) => {
-				setConfirming(asking);
-				setError(null);
-			}}
-			onRemove={() => void remove()}
-		/>
-	);
+	const viewProps: Omit<AnkiCardChipViewProps, "input" | "inline"> = {
+		open,
+		record,
+		confirming,
+		busy,
+		error,
+		onToggle: () => {
+			if (!open) void read();
+			setOpen(!open);
+		},
+		onRemoveAsk: (asking) => {
+			setConfirming(asking);
+			setError(null);
+		},
+		onRemove: () => void remove(),
+	};
+	return { record, read, viewProps };
 }

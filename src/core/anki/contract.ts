@@ -9,7 +9,8 @@
  * the correct idea (or when the learner asks for a card). The server
  * pipeline records every miss in the card ledger; a miss the tutor left
  * without a card for two replies goes to the reserve writer, a small
- * background model call. Cards reach the user's Anki through the
+ * background model call. A probe miss goes to the writer at once: the
+ * probe already showed the correct answer and its explanation. Cards reach the user's Anki through the
  * AnkiConnect add-on. Anki closed = the card waits in the ledger and goes
  * on the next run.
  */
@@ -165,10 +166,19 @@ export interface AnkiMiss {
 	messageIndex: number;
 }
 
-/** Phases where the correct idea is usually not explained yet when the miss
- *  happens: the card waits until the tutor has explained it. */
+/** A probe question shows its correct answer and explanation (the "Why",
+ *  or Recall's committed answer) right after the learner answers. So a
+ *  probe miss is explained already: the reserve writer makes its card at
+ *  once, without waiting for the lesson or the tutor's replies, and the
+ *  teacher makes none. */
+export function ankiMissExplainedOnAnswer(miss: Pick<AnkiMiss, "phase">): boolean {
+	return miss.phase === "probe";
+}
+
+/** A prediction comes before the teaching: its card waits until the tutor
+ *  has explained the idea. */
 export function missNeedsTeaching(miss: Pick<AnkiMiss, "phase" | "questionType">): boolean {
-	return miss.phase === "probe" || miss.questionType === "predict";
+	return !ankiMissExplainedOnAnswer(miss) && miss.questionType === "predict";
 }
 
 // ─── the card writer (src/agent/subagents/anki-writer.ts) ───────────────────
@@ -189,8 +199,9 @@ export interface AnkiCardDraft {
 
 /**
  * The teacher's and the practice agent's card tool, in their registries only
- * while the feature is on. Never the prober's: nothing is explained during
- * the probe; a probe miss gets its card when the teacher teaches that idea.
+ * while the feature is on. Never the prober's: a probe miss gets its card
+ * from the reserve writer right after the answer, which shows the correct
+ * answer and its explanation (`ankiMissExplainedOnAnswer`).
  */
 export const ANKI_CARD_TOOL = "anki_card";
 
@@ -313,8 +324,8 @@ export const ANKI_REASONS = Object.freeze({
 });
 
 /** A waiting miss is dropped (neverExplained) after this many "wait"
- *  answers from the writer, or this many days. Probe and predict misses are
- *  not sent to the writer before the probe is done, and misses waiting only
+ *  answers from the writer, or this many days. Predict misses are not sent
+ *  to the writer before the probe is done, and misses waiting only
  *  for a background model (ANKI_REASONS.noModel) are exempt from the days. */
 export const ANKI_MAX_WAITS = 8;
 /** New chat messages needed before a waiting miss is evaluated again. */

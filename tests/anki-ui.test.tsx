@@ -49,6 +49,9 @@ import {
 	ankiCardChipData,
 	type AnkiCardChipViewProps,
 } from "../components/anki/anki-card-chip.tsx";
+import { AnkiQuestionCard, ankiQuestionCardShown } from "../components/anki/anki-question-card.tsx";
+import { ServerEventsProvider, type NotifySource } from "../components/server-events.tsx";
+import { ankiCardId } from "../src/core/index.ts";
 import { artifactRenderers } from "../components/artifacts/index.ts";
 import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
 import { startDomTranslation } from "../components/i18n/dom-translator.ts";
@@ -1092,6 +1095,51 @@ describe("the chat's Anki card", () => {
 	});
 });
 
+// ─── a probe question's card, inside its answered card ──────────────────────
+
+const QUESTION_CHAT = "chat_q";
+const QUESTION_CALL = "toolu_probe";
+const QUESTION_ID = ankiCardId(`${QUESTION_CHAT}:${QUESTION_CALL}`);
+const questionRecord = (over: Partial<AnkiCardRecord> = {}) =>
+	card({
+		id: QUESTION_ID,
+		key: `${QUESTION_CHAT}:${QUESTION_CALL}`,
+		chatId: QUESTION_CHAT,
+		toolCallId: QUESTION_CALL,
+		phase: "probe",
+		kind: "dontKnow",
+		writtenBy: "writer",
+		status: "queued",
+		noteId: undefined,
+		card: { front: "What is $8^{-2/3}$?", back: "$\\frac{1}{4}$", why: "A negative exponent inverts the base.", pitfall: "" },
+		...over,
+	});
+
+describe("a probe question's Anki card", () => {
+	it("inline: collapsed it is the header line alone, in no frame of its own; expanded, the front and the rest", () => {
+		const collapsed = doc(renderChip({ inline: true, record: questionRecord() }));
+		assert.ok(q(collapsed, "anki-question-card"));
+		assert.equal(q(collapsed, "anki-card-chip"), null);
+		assert.ok(!q(collapsed, "anki-question-card")!.className.includes("rounded-xl"), "no card inside the card");
+		assert.match(text(q(collapsed, "anki-card-chip-toggle")), /^Anki card created/);
+		assert.equal(q(collapsed, "anki-card-chip-front"), null);
+		assert.equal(q(collapsed, "anki-card-chip-details"), null);
+		const open = doc(renderChip({ inline: true, open: true, record: questionRecord() }));
+		assert.ok(q(open, "anki-card-chip-front"));
+		assert.equal(text(q(open, "anki-card-chip-back")), "The number of pivots.");
+		assert.equal(text(q(open, "anki-card-chip-status")), "Waiting for Anki");
+	});
+
+	it("shows a written card on its way, in Anki, refused or removed; nothing waiting, skipped or missing", () => {
+		for (const status of ["queued", "sent", "failed", "removed"] as const) assert.ok(ankiQuestionCardShown(questionRecord({ status })), status);
+		assert.ok(!ankiQuestionCardShown(questionRecord({ status: "waiting", card: undefined })));
+		assert.ok(!ankiQuestionCardShown(questionRecord({ status: "skipped", card: undefined, reason: "The answer was right." })));
+		assert.ok(!ankiQuestionCardShown(questionRecord({ status: "skipped", reason: ANKI_REASONS.sessionLimit })), "past the session limit");
+		assert.ok(!ankiQuestionCardShown(null));
+		assert.ok(!ankiQuestionCardShown(undefined));
+	});
+});
+
 describe("the chat's Anki card, mounted", () => {
 	const saved = new Map<string, unknown>();
 	const GLOBALS = ["window", "document", "Element", "HTMLElement", "CustomEvent", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -1217,6 +1265,83 @@ describe("the chat's Anki card, mounted", () => {
 		assert.equal(text(q(page, "anki-card-chip-status")), "Removed");
 		assert.equal(q(page, "anki-card-chip-remove"), null);
 		assert.equal(q(page, "anki-card-chip-confirm"), null);
+	});
+
+	/** A server events channel the test drives: named frames and reopens. */
+	function fakeEvents() {
+		const handlers = new Map<string, (raw: string) => void>();
+		let reopened: (() => void) | null = null;
+		const source: NotifySource = {
+			close: noop,
+			onOpen: (cb) => {
+				reopened = cb;
+			},
+			onEvent: (name, cb) => {
+				handlers.set(name, cb);
+			},
+		};
+		return {
+			connect: () => source,
+			async fire(name: string, payload: unknown) {
+				await act(async () => handlers.get(name)?.(JSON.stringify(payload)));
+				await settle();
+			},
+			async reopen() {
+				await act(async () => reopened?.());
+				await settle();
+			},
+		};
+	}
+	async function mountQuestion(events: ReturnType<typeof fakeEvents>) {
+		host = page.createElement("div") as unknown as HTMLElement;
+		page.body.append(host);
+		root = createRoot(host);
+		await act(async () =>
+			root!.render(
+				<ServerEventsProvider connect={events.connect}>
+					<AnkiQuestionCard chatId={QUESTION_CHAT} toolCallId={QUESTION_CALL} />
+				</ServerEventsProvider>,
+			),
+		);
+		await settle();
+	}
+	const readQuestion = `GET ${ANKI_API}/cards/${QUESTION_ID}`;
+
+	it("a probe question's card: hidden while waiting, shown once anki-changed says its chat changed", async () => {
+		const ledger = fakeLedger(questionRecord({ status: "waiting", card: undefined }));
+		const events = fakeEvents();
+		await mountQuestion(events);
+		assert.deepEqual(ledger.calls, [readQuestion], "the id comes from the chat and the question's call");
+		assert.equal(host!.innerHTML, "");
+
+		await events.fire("anki-changed", { chatId: "chat_other" });
+		assert.deepEqual(ledger.calls, [readQuestion], "another chat's change reads nothing");
+
+		ledger.set(questionRecord({ status: "queued" }));
+		await events.fire("anki-changed", { chatId: QUESTION_CHAT });
+		assert.deepEqual(ledger.calls, [readQuestion, readQuestion]);
+		assert.match(text(q(page, "anki-card-chip-toggle")), /^Anki card created/);
+		assert.equal(q(page, "anki-card-chip-front"), null, "collapsed: the line alone");
+
+		await click(q(page, "anki-card-chip-toggle"));
+		assert.ok(q(page, "anki-card-chip-front"));
+		assert.equal(text(q(page, "anki-card-chip-why")), "WhyA negative exponent inverts the base.");
+		assert.equal(text(q(page, "anki-card-chip-status")), "Waiting for Anki");
+
+		ledger.set(questionRecord({ status: "sent", noteId: 17 }));
+		await events.reopen();
+		assert.equal(text(q(page, "anki-card-chip-status")), "In Anki", "a reconnect reads again");
+	});
+
+	it("a probe question's card: Remove asks, then deletes", async () => {
+		const ledger = fakeLedger(questionRecord({ status: "sent", noteId: 17 }));
+		await mountQuestion(fakeEvents());
+		await click(q(page, "anki-card-chip-toggle"));
+		await click(q(page, "anki-card-chip-remove"));
+		assert.equal(text(q(page, "anki-card-chip-confirm-question")), "Remove from Anki?");
+		await click(q(page, "anki-card-chip-confirm-remove"));
+		assert.deepEqual(ledger.calls.filter((call) => call.startsWith("DELETE")), [`DELETE ${ANKI_API}/cards/${QUESTION_ID}`]);
+		assert.equal(text(q(page, "anki-card-chip-status")), "Removed");
 	});
 
 	it("a refused or errored part renders nothing and reads nothing", async () => {
