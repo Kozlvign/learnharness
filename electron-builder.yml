@@ -152,6 +152,10 @@ dmg:
       path: /Applications
 afterPack: scripts/after-pack.cjs
 win:
+  # Early Node-mode CA loading must work without ASAR support.
+  extraResources:
+    - from: electron/server-ca.cjs
+      to: server-ca.cjs
   icon: build/icon.ico
   target:
     - target: nsis

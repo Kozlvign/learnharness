@@ -118,7 +118,9 @@ describe("backend-only preload wiring and packaging", () => {
 			assert.equal(launch.binary, "/fixture/LearnHarness");
 			assert.deepEqual(launch.args, platform === "darwin"
 				? ["--require", path.join("/fixture/resources with spaces", "server-title-guard.cjs"), entry]
-				: [entry]);
+				: platform === "win32"
+					? ["--require", path.join("/fixture/resources with spaces", "server-ca.cjs"), entry]
+					: [entry]);
 			assert.equal(launch.options.cwd, path.dirname(entry));
 			assert.equal(launch.options.env.NODE_OPTIONS, undefined, "do not add NODE_OPTIONS to the child environment");
 			assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, "1");
@@ -149,6 +151,12 @@ describe("backend-only preload wiring and packaging", () => {
 				if (platform === "mac") {
 					await copyFiles(guards, null, false);
 					assert.equal(readFileSync(path.join(destination, "server-title-guard.cjs"), "utf8"), guardSource);
+				}
+				const caLoaders = matchers.filter((matcher: { to: string }) => matcher.to === path.join(destination, "server-ca.cjs"));
+				assert.equal(caLoaders.length, platform === "win" ? 1 : 0);
+				if (platform === "win") {
+					await copyFiles(caLoaders, null, false);
+					assert.equal(readFileSync(path.join(destination, "server-ca.cjs"), "utf8"), readFileSync(path.join(root, "electron/server-ca.cjs"), "utf8"));
 				}
 			}
 		} finally {
