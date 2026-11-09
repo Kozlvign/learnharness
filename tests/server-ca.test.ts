@@ -12,6 +12,7 @@ const backend = { ELECTRON_RUN_AS_NODE: "1", LH_DESKTOP_SERVER: "1" };
 
 function load(platform: string, env: Record<string, string>) {
 	const defaults = [rootCertificates[0]!];
+	const system = [rootCertificates[1]!];
 	let trusted = defaults;
 	const warnings: string[] = [];
 	runInNewContext(source, {
@@ -21,7 +22,10 @@ function load(platform: string, env: Record<string, string>) {
 			if (id === "node:fs") return { readFileSync };
 			assert.equal(id, "node:tls");
 			return {
-				getCACertificates: (type: string) => { assert.equal(type, "default"); return defaults; },
+				getCACertificates: (type: string) => {
+					assert.ok(type === "default" || type === "system");
+					return type === "system" ? system : trusted;
+				},
 				setDefaultCACertificates: (certificates: string[]) => {
 					for (const pem of certificates) new X509Certificate(pem);
 					trusted = Array.from(certificates);
@@ -29,30 +33,36 @@ function load(platform: string, env: Record<string, string>) {
 			};
 		},
 	});
-	return { defaults, trusted, warnings };
+	return { defaults, system, trusted, warnings };
 }
+
+test("Windows backend trusts system certificates even without terminal-specific CA configuration", () => {
+	const result = load("win32", backend);
+	assert.deepEqual(result.trusted, [...result.defaults, ...result.system]);
+	assert.deepEqual(result.warnings, []);
+});
 
 test("Windows backend loads configured certificates from a Unicode path and preserves default trust", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "lh-ca-Usuário-"));
 	try {
 		const file = path.join(dir, "certificados extras.pem");
-		writeFileSync(file, `# configured bundle\n${rootCertificates[1]}\n${rootCertificates[2]}\n`);
+		writeFileSync(file, `# configured bundle\n${rootCertificates[2]}\n${rootCertificates[3]}\n`);
 		const result = load("win32", { ...backend, NODE_EXTRA_CA_CERTS: file });
-		assert.deepEqual(result.trusted, [...result.defaults, rootCertificates[1], rootCertificates[2]]);
+		assert.deepEqual(result.trusted, [...result.defaults, ...result.system, rootCertificates[2], rootCertificates[3]]);
 		assert.deepEqual(result.warnings, []);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
 
-test("missing or malformed extra CA bundles retain default trust", () => {
+test("missing or malformed extra CA bundles retain default and system trust", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "lh-ca-invalid-"));
 	try {
 		for (const contents of [null, "empty bundle", "-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----"]) {
 			const file = path.join(dir, contents === null ? "missing.pem" : "invalid.pem");
 			if (contents !== null) writeFileSync(file, contents);
 			const result = load("win32", { ...backend, NODE_EXTRA_CA_CERTS: file });
-			assert.deepEqual(result.trusted, result.defaults);
+			assert.deepEqual(result.trusted, [...result.defaults, ...result.system]);
 			assert.equal(result.warnings.length, 1);
 		}
 	} finally {
@@ -60,14 +70,13 @@ test("missing or malformed extra CA bundles retain default trust", () => {
 	}
 });
 
-test("CA recovery only applies to the Windows desktop backend with an explicitly configured bundle", () => {
+test("system and extra CA loading only applies to the Windows desktop backend", () => {
 	for (const [platform, env] of [
 		["darwin", { ...backend, NODE_EXTRA_CA_CERTS: "missing.pem" }],
 		["linux", { ...backend, NODE_EXTRA_CA_CERTS: "missing.pem" }],
 		["win32", { NODE_EXTRA_CA_CERTS: "missing.pem" }],
 		["win32", { LH_DESKTOP_SERVER: "1", NODE_EXTRA_CA_CERTS: "missing.pem" }],
 		["win32", { ELECTRON_RUN_AS_NODE: "1", NODE_EXTRA_CA_CERTS: "missing.pem" }],
-		["win32", backend],
 	] as [string, Record<string, string>][]) {
 		const result = load(platform, env);
 		assert.deepEqual(result.trusted, result.defaults);
