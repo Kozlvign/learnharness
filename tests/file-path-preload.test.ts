@@ -76,7 +76,7 @@ describe("path-only preload bridge", () => {
 	it("adds just the narrow path resolver to the explicit surface, without exposing Electron or filesystem APIs", () => {
 		const f = fixture(() => "");
 		assert.deepEqual(Object.keys(f.bridge).sort(), [
-			"chatgpt", "checkForUpdates", "chooseAttachmentFolder", "dismissStartupMessage", "expandWindow", "getPathForFile", "getUpdateState", "getZoom",
+			"chatgpt", "checkForUpdates", "chooseAttachmentFolder", "dismissStartupMessage", "expandWindow", "forkUpdate", "getPathForFile", "getUpdateState", "getZoom",
 			"installUpdate", "onOpenSettings", "onUpdateStatus", "onZoom", "platform", "setAppearance", "subscriptions", "takeStartupMessage",
 		]);
 		assert.equal(f.bridge.platform, "darwin");
