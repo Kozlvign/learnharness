@@ -62,7 +62,10 @@ export function storeAttachment(bytes: Uint8Array, type: ImageType): string {
 	return name;
 }
 
-const REFERENCE = /"attachment"\s*:\s*"([a-f0-9]{32}\.(?:png|jpg|webp|gif))"/g;
+/** Any JSON string that is an attachment name: an image block's
+ *  `"attachment"`, and the name lists answers and practice thinking keep
+ *  (`"attachments"`). A stray match only keeps a file longer. */
+const REFERENCE = /"([a-f0-9]{32}\.(?:png|jpg|webp|gif))"/g;
 
 /** Every attachment name the chat records refer to. */
 export function referencedAttachments(chatsDir: string = PATHS.chats): Set<string> {

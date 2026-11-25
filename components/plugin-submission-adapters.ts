@@ -5,7 +5,8 @@ export interface BuiltinSubmissionCapture {
 	isCurrent(): boolean;
 }
 export type PrepareBuiltinSubmission = (capture: BuiltinSubmissionCapture) => void;
-export type PrepareThinkingSubmission = (capture: () => string, onAccepted: (captured: string) => void) => void;
+/** Fork: `attachments` captures native practice's attached images by name (docs/images.md). */
+export type PrepareThinkingSubmission = (capture: () => string, onAccepted: (captured: string) => void, attachments?: () => readonly string[]) => void;
 export type PreparePluginProblemSubmission = (capture: () => Extract<ChatInput, { type: "plugin-problem-submission" }>, isCurrent: () => boolean, onAccepted: () => void) => Promise<boolean>;
 export type PreparePluginQuestionSubmission = (capture: () => Extract<ChatInput, { type: "plugin-question-answer" }>, isCurrent: () => boolean) => Promise<boolean>;
 export function submissionImages(input: Extract<PluginSubmission, { type: "answer" | "plugin-question-answer" }>, channels: readonly string[]): PluginSubmissionImages | undefined {

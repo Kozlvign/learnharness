@@ -41,7 +41,8 @@ import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { citationsToReadableText, collectCitations } from "./citations.ts";
 import { messageMarkdown } from "./session-markdown.ts";
 import { answeredOptionLetters } from "./answer-presentation.ts";
-import { displayedOptionLetter, questionDisplayOptions, type QuestionAnswerData } from "./question-core.ts";
+import { displayedOptionLetter, questionDisplayOptions, type AnswerAttachments, type QuestionAnswerData } from "./question-core.ts";
+import { isAttachmentName } from "./attachments.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
 import { readPluginQuestionMessageAnnotation, readPluginQuestionAnswer, readPluginQuestionCancellation } from "./plugin-questions.ts";
@@ -352,6 +353,15 @@ function quizHeading(answer: QuestionAnswerData, tool: string): string {
 	return answer.questionType === "predict" ? "Prediction question" : "Check question";
 }
 
+/** Fork: the helper sees no images; it is told where the learner attached
+ *  some (docs/images.md). Null when there are none. */
+function attachedImagesNote(attachments: AnswerAttachments | undefined): string | null {
+	const count = (n: number) => (n === 1 ? "an image" : `${n} images`);
+	const parts = ([["answer", "the answer"], ["thinking", "their thinking"], ["readingThinking", "their notes while reading"]] as const)
+		.flatMap(([channel, where]) => (attachments?.[channel]?.length ? [`${count(attachments[channel]!.length)} with ${where}`] : []));
+	return parts.length ? `*The learner attached images, not shown to you: ${parts.join(", ")}.*` : null;
+}
+
 /** An ANSWERED question in full: options with the key, the learner's
  *  answer, the verdict and the explanation/committed answer. */
 function answeredQuestionMarkdown(result: ToolResultMessage, input: Record<string, unknown> | undefined): string | null {
@@ -392,6 +402,8 @@ function answeredQuestionMarkdown(result: ToolResultMessage, input: Record<strin
 	if (typeof answer.confidence === "number") lines.push(`The learner's stated confidence: ${answer.confidence}%.`);
 	const thinking = answer.thinking ?? answer.note;
 	if (typeof thinking === "string" && thinking.trim()) lines.push(`*The learner's thinking:* ${thinking.trim()}`);
+	const attached = attachedImagesNote(answer.attachments);
+	if (attached) lines.push(attached);
 	if (answer.explanation) lines.push(`**Explanation shown to the learner:** ${answer.explanation}`);
 	if (answer.committed) lines.push(`**The teacher's committed answer, shown to the learner:** ${answer.committed}`);
 	return lines.join("\n\n");
@@ -561,7 +573,12 @@ export function sideChatLessonDocument(messages: readonly LhMessage[]): string {
 				if (submission?.thinking.trim()) blocks.push(`### Learner (thinking on the problem)\n\n${submission.thinking.trim()}`);
 			} else if (marker.customType === "practice-thinking") {
 				const text = (marker.details as { text?: unknown } | null)?.text;
-				if (typeof text === "string" && text.trim()) blocks.push(`### Learner (thinking on the problem)\n\n${text.trim()}`);
+				// Fork: attached images are named, not shown (docs/images.md).
+				const attachments = (marker.details as { attachments?: unknown } | null)?.attachments;
+				const images = Array.isArray(attachments) ? attachments.filter(isAttachmentName).length : 0;
+				const note = images > 0 ? `*The learner attached ${images === 1 ? "an image" : `${images} images`}, not shown to you.*` : "";
+				const body = [typeof text === "string" ? text.trim() : "", note].filter(Boolean).join("\n\n");
+				if (body) blocks.push(`### Learner (thinking on the problem)\n\n${body}`);
 			}
 		}
 	}

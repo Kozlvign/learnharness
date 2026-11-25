@@ -85,14 +85,16 @@ function resolved(content: readonly Block[], sees: boolean): Block[] {
 	return notes.length ? [{ type: "text", text: notes.join("\n") }, ...out] : out;
 }
 
-/** The context with the learner's attached images ready for `model`. */
+/** The context with the learner's attached images ready for `model`: in
+ *  messages, and in question answers (tool results), which carry the
+ *  images attached to "Your thinking" and "Your answer". */
 export function withAttachedImages<C extends Context>(context: C, model: Pick<Model<Api>, "input">): C {
 	const sees = model.input.includes("image");
 	let changed = false;
 	const messages = context.messages.map((message): Message => {
-		if (message.role !== "user" || !Array.isArray(message.content) || !message.content.some(isAttachedImage)) return message;
+		if ((message.role !== "user" && message.role !== "toolResult") || !Array.isArray(message.content) || !message.content.some(isAttachedImage)) return message;
 		changed = true;
-		return { ...message, content: resolved(message.content, sees) };
+		return { ...message, content: resolved(message.content, sees) } as Message;
 	});
 	return changed ? { ...context, messages } : context;
 }

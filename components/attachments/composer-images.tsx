@@ -60,13 +60,31 @@ export function AttachImagesButton({ images }: { images: ComposerImages }) {
 	);
 }
 
+/** The image button beside the label of a question or practice field
+ *  ("Your thinking", "Your answer", "Thinking while reading"). */
+export function FieldImagesButton({ images }: { images: ComposerImages }) {
+	return (
+		<button
+			type="button"
+			data-testid="attach-field-images"
+			onClick={images.pick}
+			aria-label="Attach images"
+			title="Attach images. You can also paste or drop them."
+			className="-my-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+		>
+			<ImagePlusIcon className="size-3.5" />
+		</button>
+	);
+}
+
 /** The images waiting to be sent, above the composer's text. Spans the
- *  composer's full width (it is a flex-wrap row). */
-export function ComposerImageTray({ images }: { images: ComposerImages }) {
+ *  composer's full width (it is a flex-wrap row). A question or practice
+ *  field places it below its text with `className`. */
+export function ComposerImageTray({ images, className = "basis-full px-1 pt-1", testId = "composer-images" }: { images: ComposerImages; className?: string; testId?: string }) {
 	const [open, setOpen] = useState<string | null>(null);
 	if (images.items.length === 0 && !images.dragging && !images.error) return null;
 	return (
-		<div data-testid="composer-images" className="basis-full px-1 pt-1">
+		<div data-testid={testId} className={className}>
 			{images.dragging && (
 				<div className="mb-1.5 rounded-lg border border-dashed border-muted-foreground/50 px-3 py-3 text-center font-ui text-xs text-muted-foreground">
 					Drop images to attach them

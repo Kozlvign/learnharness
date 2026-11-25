@@ -168,14 +168,16 @@ export function preparePluginSubmission(input: unknown, target: PluginSubmission
 }
 
 /** Validate raw fields against the private rendered question; buildAnswer remains the only grader. */
-export function validatePluginBuiltinSubmissionAnswer(question: QuestionData, answer: PluginBuiltinSubmissionAnswer): AnswerRequest {
+/** Fork: `attached` says the learner attached images to the answer field
+ *  (docs/images.md), which, like answer images, stand in for its text. */
+export function validatePluginBuiltinSubmissionAnswer(question: QuestionData, answer: PluginBuiltinSubmissionAnswer, attached = false): AnswerRequest {
 	const raw = builtinAnswer(object(clonePluginQuestionJson(answer)));
 	const values = raw.values ?? [], other = raw.other?.trim() ?? "", text = raw.text?.trim() ?? "";
 	if (new Set(values).size !== values.length || values.some(value => !question.options.some(option => option.value === value))) throw new Error("Answer contains duplicate or unknown option values");
 	if (raw.confidence !== undefined && question.kind !== "quiz") throw new Error("Confidence is only applicable to quiz answers");
 	if (question.mode === "text") {
 		if (values.length || other || raw.dontKnow === true) throw new Error("Selection fields are not applicable to text answers");
-		if (!text && !raw.images.length) throw new Error("Answer text or answer images are required");
+		if (!text && !raw.images.length && !attached) throw new Error("Answer text or answer images are required");
 	} else {
 		if (text || (other && question.kind !== "ask")) throw new Error("Answer field is not applicable to this question");
 		if (raw.dontKnow && (values.length || other)) throw new Error("dontKnow cannot be combined with an answer selection");

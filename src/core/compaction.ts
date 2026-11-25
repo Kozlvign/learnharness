@@ -39,9 +39,17 @@ import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
 import { newMessageId } from "./native-messages.ts";
-import { attachmentsOf } from "./attachments.ts";
+import { attachmentsOf, isAttachedImage, isAttachmentName } from "./attachments.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, Model, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
+
+/** Fork: "(attached N images) " for a practice-thinking marker with
+ *  attached images, else empty (docs/images.md). */
+function attachedNote(details: unknown): string {
+	const attachments = (details as { attachments?: unknown } | null)?.attachments;
+	const count = Array.isArray(attachments) ? attachments.filter(isAttachmentName).length : 0;
+	return count > 0 ? `(attached ${count === 1 ? "an image" : `${count} images`}) ` : "";
+}
 
 // ─── constants (the tunables, owner-approved) ────────────────────────────────
 
@@ -352,8 +360,9 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 			if (blocks.length > 0) lines.push(`[TUTOR] ${blocks.join("\n")}`);
 		} else if (role === "toolResult") {
 			const result = m as ToolResultMessage;
+			// Fork: an answer's attached image is named, not dumped (docs/images.md).
 			const text = result.content
-				.map((c) => (c.type === "text" ? c.text : JSON.stringify(c)))
+				.map((c) => (c.type === "text" ? c.text : isAttachedImage(c) ? "(attached an image)" : JSON.stringify(c)))
 				.join("\n");
 			lines.push(
 				`[RESULT for ${result.toolName}${result.isError ? " (error)" : ""}] ${
@@ -365,7 +374,7 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 			if (marker.customType === "plan-block") continue; // UI-only
 			if (marker.customType === "side-question" && !marker.content) continue;
 			if (marker.customType === "side-question") lines.push(`[LEARNER–HELPER CONVERSATION] ${citationsToReadableText(marker.content)}`);
-			else lines.push(`[SYSTEM NOTE] ${marker.customType === "practice-thinking" ? citationsToReadableText(marker.content) : marker.content}`);
+			else lines.push(`[SYSTEM NOTE] ${marker.customType === "practice-thinking" ? `${attachedNote(marker.details)}${citationsToReadableText(marker.content)}` : marker.content}`);
 		}
 	}
 	return lines.join("\n\n");

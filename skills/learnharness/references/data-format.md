@@ -116,6 +116,7 @@ Important answer-detail fields:
 | `thinking` | Learner reasoning about the question |
 | `note` | Legacy name for that same channel; use `thinking ?? note` |
 | `readingThinking` | Separate learner thinking while reading the teaching |
+| `images`, `attachments` | Learner images by channel (`answer`, `thinking`, `readingThinking`): `images` holds inline image blocks (plugins such as Drawing Pad), `attachments` holds file names under `<data>/attachments` (images the learner pasted, dropped or picked). Both are learner work; describe them as references, never open the files |
 | `confidence` | Self-reported 0–100 probability that the selected quiz answer is correct |
 | `correct`, `correctIndices` | Mechanical quiz grading in displayed-option order |
 | `committed`, `explanation` | Teacher's committed answer / quiz explanation, not learner speech |
@@ -135,7 +136,7 @@ recall/explain response: the teacher's subsequent prose is its interpretation.
 
 | `customType` | Interpretation |
 | --- | --- |
-| `practice-thinking` | **Learner-authored work**, including intermediate attempts and claimed answers; raw text is `details.text`, associated through `details.problemCallId` |
+| `practice-thinking` | **Learner-authored work**, including intermediate attempts and claimed answers; raw text is `details.text`, associated through `details.problemCallId`; images are `details.images` (inline) and `details.attachments` (file names) |
 | `graph-context` | Picked propositions/chains supplied as session context; app-injected, not learner speech |
 | `plan-block` | Historical plan presentation snapshot in `details.block` |
 | `subagent-steer` | Delivered teaching artifact; `details.kind` and `details.result` identify the payload |

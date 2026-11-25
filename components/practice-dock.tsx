@@ -11,6 +11,8 @@ import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { PathInput } from "@/components/path-input";
 import type { PrepareThinkingSubmission } from "./plugin-submission-adapters";
+import { useComposerImages } from "@/components/attachments/use-composer-images";
+import { ComposerImageTray, FieldImagesButton } from "@/components/attachments/composer-images";
 import { cn } from "@/lib/utils";
 
 /**
@@ -77,6 +79,10 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 	// the tail, never a stale closure.
 	const thinkingRef = useRef(thinking); thinkingRef.current = thinking;
 	const editRevision = useRef(0);
+	// Fork: native practice's attached images (docs/images.md). Pastes
+	// outside a text field and drops come here while the problem is open.
+	// A plugin problem's host field (customInput) takes none.
+	const images = useComposerImages({ enabled: !customInput });
 	useLayoutEffect(() => {
 		if (!viewReader) return;
 		const read = () => thinkingRef.current;
@@ -99,13 +105,18 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 	useLayoutEffect(() => { viewReader?.changed?.(); }, [viewReader, thinking]);
 	const submit = () => {
 		if (compactionRunning || preparing) return;
+		// Fork: images still attaching hold the send (docs/images.md).
+		if (!customInput && images.isUploading()) return;
 		const prepare = customInput?.prepare ?? onPrepareSubmission;
 		if (prepare) {
-			if (customInput ? !customInput.ready : (!thinkingRef.current.trim() && !hasPendingInput)) return;
+			if (customInput ? !customInput.ready : (!thinkingRef.current.trim() && !hasPendingInput && images.names().length === 0)) return;
 			let capturedRevision = editRevision.current;
+			let capturedImages: readonly string[] = [];
 			prepare(() => { capturedRevision = editRevision.current; return customInput ? thinkingRef.current : thinkingRef.current.trim(); }, captured => {
 				if (editRevision.current === capturedRevision && (customInput ? thinkingRef.current : thinkingRef.current.trim()) === captured) { thinkingRef.current = ""; setThinking(""); }
-			});
+				// Fork: the tray empties the same way, while it still holds what was sent.
+				if (capturedImages.length > 0 && images.names().join() === capturedImages.join()) images.clear();
+			}, customInput ? undefined : () => (capturedImages = images.names()));
 			return;
 		}
 		const text = thinkingRef.current.trim();
@@ -161,8 +172,10 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 				data-testid="practice-thinking-field"
 				className="m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 			>
-				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					YOUR THINKING
+				{/* Fork: the image button beside the label (docs/images.md). */}
+				<div className="flex items-center justify-between gap-2 px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<span>YOUR THINKING</span>
+					{!customInput && <FieldImagesButton images={images} />}
 				</div>
 				<PathInput
 					value={thinking}
@@ -170,6 +183,7 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 						thinkingRef.current = value; editRevision.current++;
 						setThinking(value);
 					}}
+					onPaste={customInput ? undefined : images.onPaste}
 					onKeyDown={(e) => {
 						if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 						// Esc ends dictation — stopPropagation claims it (the
@@ -193,6 +207,7 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}
 				/>
+				{!customInput && <ComposerImageTray images={images} className="px-2.5 pb-1" testId="field-images" />}
 				{/* The submit row (owner round 4, 2026-10-05): IDENTICAL to the
 				    question dock's — hint left, the SAME Button (h-9, px-3.5),
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
@@ -204,7 +219,7 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 					<Button
 						type="button"
 						data-testid="practice-send"
-						disabled={(customInput ? !customInput.ready : (!thinking.trim() && !hasPendingInput)) || compactionRunning || preparing}
+						disabled={(customInput ? !customInput.ready : (!thinking.trim() && !hasPendingInput && images.items.length === 0)) || compactionRunning || preparing || (!customInput && images.uploading)}
 						onClick={() => submit()}
 						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 					>

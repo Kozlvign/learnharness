@@ -3,7 +3,7 @@
 You can send the tutor images with your messages: a screenshot of an exercise, a photo of your handwritten work, a diagram from a book.
 
 - **Paste** with Ctrl+V in the message box. A paste anywhere outside a text field works too.
-- **Drop** image files anywhere on the page. Other files you drop become upstream's file path chips, and when you drop both kinds at once, each goes its own way. While a question or a practice problem is open, or the session is being summarized, the message box can't take images, so dropped images become path chips too (desktop app only); the tutor can open them with its file reader.
+- **Drop** image files anywhere on the page. Other files you drop become upstream's file path chips, and when you drop both kinds at once, each goes its own way. While a question or a practice problem is open, its fields take the images instead (see below). While a plugin's question or problem is open, or the session is being summarized, nothing takes them, so dropped images become path chips too (desktop app only); the tutor can open them with its file reader.
 - **Pick** files with the image button left of the message box.
 
 Up to 8 images per message, with or without text. Thumbnails show above the text while they attach; hover one to remove it, click it to see it full size. Sent images appear in your message in the conversation, and clicking one opens it full size (Esc closes it).
@@ -11,6 +11,23 @@ Up to 8 images per message, with or without text. Thumbnails show above the text
 It works in a running session, while the tutor is still answering (the image rides with your steering message), on **New session** and on the home screen, so a session can start from a screenshot alone. Such a session is named "Image" until you rename it.
 
 The images go to the tutor's model as images. Every Claude model sees them, including through the Claude connection. When the model in use cannot see images, it gets a short note instead and tells you so, so pick a model that can, or describe the image in words.
+
+## In questions and practice
+
+The fields where you write your reasoning take images too, so the tutor can see handwritten work, a sketch or a worked step:
+
+- **Your thinking** of a check, probe or question with options.
+- **Your answer** of an explain or recall question. An answer can be images alone, such as a photo of a proof written by hand.
+- **Thinking while reading**, the field above a check that waits behind *Check your understanding*.
+- **Your thinking** of a practice problem. A submission can be images alone.
+
+Each field has the image button right of its label. Pasting with Ctrl+V into a field attaches to that field. A paste outside any text field, or a drop anywhere on the page, goes where dictation goes: to *Thinking while reading* while the check is still closed, to the question's field once it is open, and to the practice field while a problem is open. The rules of the message box apply: up to 8 images per field, the same scaling, thumbnails below the text, and Submit waits while an image is still attaching. Images don't replace picking an option.
+
+If a submission fails, its images stay in the field with its text. Dismissing a check keeps the reading field's images in the record and on its card, but, like that text, the tutor doesn't get them.
+
+The tutor gets each answer's images after the answer, under the labels upstream uses for its inline images ("Answer images:", "Question thinking images:", "Reading thinking images:"), and practice images after "Your thinking:". The answered card and the practice thinking card show them like upstream's submitted images; clicking one opens it full size. The side helper is told that images were attached, but doesn't see them.
+
+These fields take no images while a plugin's question or problem is open: plugin submissions follow their own contract. A plugin such as Drawing Pad keeps adding its inline images as before.
 
 ## Size and cost
 
@@ -22,8 +39,9 @@ The tutor sees the whole conversation on every reply, images included, until a l
 
 - **The message.** A message with images keeps the native shape every provider reads: image blocks followed by the text (`src/core/attachments.ts`). The chat record keeps each image as a file name with empty data, so chat files stay small. The sidebar reads every chat file on each refresh, which is why the image bytes stay out of them.
 - **The files.** `POST /api/attachments` checks that the bytes really are PNG, JPEG, WebP or GIF and at most 3.75 MB, about 5 MB once encoded, which is the strictest provider limit. It stores them in `<data>/attachments` under a name made from their SHA-256, so the same image attached twice is stored once. `GET /api/attachments/<name>` serves them to the conversation (`src/server/attachments-http.ts`). Both routes follow the same-origin rules of the other fork controls, behind the desktop proxy.
-- **Model calls.** `src/agent/models.ts` passes every model call through `withAttachedImages` (`src/agent/attachments.ts`). It reads the files back into the request, keeps recently used ones in memory, and never changes the record.
-- **Cleanup.** Images that no chat refers to are deleted after 7 days. That leaves time for drafts that were not sent yet, and also covers images of deleted sessions. The check runs at most twice a day, when an image is uploaded.
+- **Answers and practice.** An answer keeps its images by channel in `attachments` (`{ answer?, thinking?, readingThinking? }`, `src/core/question-core.ts`), next to upstream's inline `images`. `nativeAnswerContent` (`src/core/native-messages.ts`) puts each channel's attached images ahead of its inline ones under the channel's label, except in a dismissal. A practice-thinking marker keeps them in `details.attachments`, and its model message lists them after the text. The `answer` and `thinking` input events accept these names; a dismissal accepts the reading channel's.
+- **Model calls.** `src/agent/models.ts` passes every model call through `withAttachedImages` (`src/agent/attachments.ts`). It reads the files back into the request, in learner messages and in question answers (tool results), keeps recently used ones in memory, and never changes the record.
+- **Cleanup.** Images that no chat refers to are deleted after 7 days. Any attachment name in a chat file counts as a reference, so the name lists of answers and practice thinking do too. That leaves time for drafts that were not sent yet, and also covers images of deleted sessions. The check runs at most twice a day, when an image is uploaded.
 - **Dropping.** Upstream's drop zone (`components/file-path-drop-zone.tsx`) covers the content area and turns dropped files into path chips. While a composer can attach images, it registers in `components/attachments/drop-target.ts`, and the zone hands it the dropped images before making chips of the rest. A drag of images only shows the tray's hint instead of the zone's overlay. Drops on the sidebar, outside the zone, go to the composer directly.
 - **New sessions.** Upstream hands a new session's opening message to the chat page through `sessionStorage` (`components/opening-prompt.ts`). The entry also carries the images, so the text may be empty. `SessionStarter` (`components/start-session.ts`) takes the opening apart from the title, which is "Image" for a start from images alone. If the opening can't be sent, its images go back to the tray along with its text.
 - **The composer.** `components/attachments/` holds the paste, drop and picker handling, the scaling (`image-files.ts`), the tray, the attach button, the images in sent messages and the full-size viewer. A paste that also carries plain text, such as a copy from an office document, stays a text paste.
@@ -41,4 +59,11 @@ Upstream files touched (small, marked "Fork"):
 - `components/file-path-drop-zone.tsx`: dropped images go to the composer.
 - `src/server/jobs.ts` (`prepareAndSteerChat`): steers with attached images.
 
-`tests/images.test.tsx` covers the input events, the record and view, the model calls, the routes, the cleanup and the composer.
+The question and practice fields add (small, marked "Fork"):
+
+- `src/core/question-core.ts`, `src/core/input-events.ts`, `src/core/native-messages.ts` and `src/core/plugin-submissions.ts` (a text answer of images alone): the record, the inputs and the model's view.
+- `src/core/compaction.ts` and `src/core/side-chat.ts`: the summarizer and the side helper name the images.
+- `components/question-dock.tsx`, `components/practice-dock.tsx`, `components/reading-thinking.tsx` and `components/chat.tsx`: the trays, their claim on pastes and drops, the sends, drafts and dismissal. The reading field's tray lives in `DockOverlay`, which knows when the check is still closed, and `ChatView` reads it through a ref.
+- `components/thinking-block.tsx`, `components/submitted-images.tsx`, `components/answered-card.tsx` and `components/practice-cards.tsx`: the cards.
+
+`tests/images.test.tsx` covers the input events, the record and view, the model calls, the routes, the cleanup and the composer. `tests/answer-images.test.tsx` covers the question and practice fields.
