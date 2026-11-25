@@ -88,7 +88,7 @@ import { createCiteAction, type CitationEditTarget } from "@/components/citation
 import { CitationActionsContext, type CitationActions } from "@/components/citation-chip";
 import { CitationCommentPopover } from "@/components/citation-comment-popover";
 import { revealCitationSource } from "@/components/citation-source";
-import { createSideQuestionActions, SideThreadBody, SideThreadPanel, SideThreadPopover } from "@/components/side-thread";
+import { createSideQuestionActions, SideThreadBody, SideThreadPopover } from "@/components/side-thread";
 import { useSideThread, type SideThreadOpenArgs } from "@/components/use-side-thread";
 import { useRouter } from "next/navigation";
 import { PracticeDock } from "@/components/practice-dock";
@@ -130,6 +130,12 @@ import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 // Fork: Anki cards (docs/anki.md).
 import { AnkiQuestionCard } from "@/components/anki/anki-question-card";
+// Fork: side panel (docs/side-panel.md).
+import { materialElement, SidePanel, useSidePanel } from "@/components/side-panel";
+import { SidePanelContext, type SidePanelControls } from "@/components/side-panel-context";
+import { findMaterial, learnerImageAnchorIds, sessionMaterials, showImageMaterialId, steerMaterialId, textPartKey, type SessionMaterial } from "@/components/session-materials";
+import { revealSessionElement } from "@/components/session-navigation";
+import { PanelRightIcon } from "lucide-react";
 
 /**
  * Width tokens (wave-5 reskin, owner decision): the teaching PROSE spans the
@@ -1276,6 +1282,32 @@ export function Chat({
 	// (invisible, clickable) button in the bottom-right whenever a question
 	// was pending with no plan yet (owner report, UI round 2026-10-01).
 	const hasPlan = useMemo(() => planExists(messages), [messages]);
+	// Fork: side panel (docs/side-panel.md): the session's materials beside
+	// the transcript, and the pinned side question's tab.
+	const materials = useMemo(() => sessionMaterials(messages, { plan: hasPlan }), [messages, hasPlan]);
+	const sidePanel = useSidePanel({ chatId, items: materials, sideQuestionPinned: sideThread.state?.mode === "panel", floatSideQuestion: sideThread.float });
+	const sidePanelOpen = sidePanel.ready && sidePanel.state.open;
+	const toggleSidePanel = sidePanel.toggle;
+	useEffect(() => {
+		const onToggle = () => {
+			if (isInteractionScopeEligible(sessionFindScopeRef.current, controller)) toggleSidePanel();
+		};
+		window.addEventListener(kbdEventForChat("toggle-side-panel"), onToggle);
+		return () => window.removeEventListener(kbdEventForChat("toggle-side-panel"), onToggle);
+	}, [toggleSidePanel, controller]);
+	const selectMaterial = sidePanel.select;
+	const sidePanelControls = useMemo<SidePanelControls>(() => ({
+		canOpen: (target) => findMaterial(materials, target) !== undefined,
+		open: (target) => {
+			const item = findMaterial(materials, target);
+			if (item) selectMaterial(item.id);
+		},
+	}), [materials, selectMaterial]);
+	const showMaterialInChat = useCallback((item: SessionMaterial) => {
+		const transcript = transcriptElementRef.current;
+		const element = transcript ? materialElement(transcript, item) : null;
+		if (element) revealSessionElement(element, scrollContextRef.current);
+	}, []);
 	// The coverage ring's refresh chain (extraction-UX redesign): bumped at
 	// turn settle — the moment this session's uncovered mass changes.
 	const [coverageTick, setCoverageTick] = useState(0);
@@ -1658,6 +1690,7 @@ export function Chat({
 		>
 		<JobsContext.Provider value={jobs}>
 		<CitationActionsContext.Provider value={citationActions}>
+		<SidePanelContext.Provider value={sidePanelControls}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
 		    bottom exactly like the left sidebar, and the header (name + phase
@@ -1787,6 +1820,23 @@ export function Chat({
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
+					{/* Fork: side panel (docs/side-panel.md). */}
+					<Hint label={sidePanelOpen ? "Close side panel" : "Open side panel"} action="toggle-side-panel" side="bottom">
+						<button
+							type="button"
+							data-testid="side-panel-toggle"
+							aria-label="Side panel"
+							aria-pressed={sidePanelOpen}
+							onClick={(e) => {
+								blurAfterPointerClick(e);
+								sidePanel.toggle();
+							}}
+							className={cn("lh-no-drag flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground",
+								sidePanelOpen ? "bg-accent text-foreground" : "text-muted-foreground")}
+						>
+							<PanelRightIcon className="size-4" aria-hidden />
+						</button>
+					</Hint>
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
 				</TopBar>
 
@@ -1811,7 +1861,10 @@ export function Chat({
 									// and centered like the teacher's artifacts (contracts.ts "THE ASYNC
 									// PROTOCOL" §4). Key fallback: legacy transcripts (pre id-hygiene)
 									// can still hold empty ids — the index keeps keys unique for them.
-									<SubagentSteerCard key={m.id || `m-${mi}`} message={m} />
+									// Fork: side panel (docs/side-panel.md): the anchor "Show in chat" finds.
+									<div key={m.id || `m-${mi}`} data-material-id={steerMaterialId(m.id)}>
+										<SubagentSteerCard message={m} />
+									</div>
 								) : m.role === "user" && m.parts.some((p) => p.type === "data-probe-handoff") ? (
 								// The probe→teach handoff wake (custom-message scheme): the
 								// PLANNING DIVIDER IS the seam (owner ruling 2026-09-26 — it
@@ -1903,6 +1956,8 @@ export function Chat({
 											<div
 										data-testid="user-message"
 										data-older-transcript-row={mi < newestTurnFrom ? "" : undefined}
+										// Fork: side panel (docs/side-panel.md): image anchors.
+										data-material-ids={learnerImageAnchorIds(m) || undefined}
 										/* THE DOCUMENT, ALL-IN (owner rounds two+three, 2026-10-07):
 										    no chat side — the user message is a full-width card-color
 										    BAND, the IDENTICAL geometry as the thinking rows: 5px band
@@ -1961,7 +2016,9 @@ export function Chat({
 														const sourceId = textPartMessageId(part.id);
 														const anchor = sourceId && sourceTextParts.get(sourceId) === part.id ? messageAnchorId(sourceId) : undefined;
 														return (
-															<div key={part.id || pi} id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage">
+															<div key={part.id || pi} id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage"
+																// Fork: side panel (docs/side-panel.md): diagram anchors.
+																data-text-part-key={textPartKey(m.id, part, pi)}>
 																<MessageResponse>{part.text}</MessageResponse>
 															</div>
 														);
@@ -2022,6 +2079,10 @@ export function Chat({
 													default: {
 														// Built-in presentation stays authoritative; plugin renderers
 														// extend only the generic native-tool fallback slot.
+														// Fork: side panel (docs/side-panel.md): a shown image's anchor.
+														if (part.type === "tool-show_image" && part.toolCallId) return (
+															<div key={pi} data-material-id={showImageMaterialId(part.toolCallId)}><ToolPartRenderer part={part} /></div>
+														);
 														if (part.type.startsWith("tool-")) return <ToolPartRenderer key={pi} part={part} />;
 														return null;
 													}
@@ -2210,24 +2271,32 @@ export function Chat({
 					}}
 				/>
 				</Conversation>
-				{sideThread.state?.mode === "panel" && (
-					<SideThreadPanel>
-						<SideThreadBody
-							key={sideThread.state.threadId}
-							state={sideThread.state}
-							chatId={chatId}
-							draft={sideThread.draftFor(sideThread.state.threadId)}
-							readDraft={sideThread.draftFor.bind(null, sideThread.state.threadId)}
-							dictation={sideDictationFor(sideThread.state.threadId)}
-							onDraftChange={sideThread.saveDraft.bind(null, sideThread.state.threadId)}
-							onAsk={(text, retry) => sideThread.ask(text, retry, sideThread.state!.threadId)}
-							onStop={sideThread.stop}
-							onExpand={sideThread.expand}
-							onFloat={sideThread.float}
-							onClose={closeSideThread}
-							onCurrentStep={goToCurrentSideStep}
-						/>
-					</SideThreadPanel>
+				{/* Fork: side panel (docs/side-panel.md): the Materials tab, and
+				    the pinned side question's tab (the old side-question panel). */}
+				{sidePanelOpen && (
+					<SidePanel
+						panel={sidePanel}
+						items={materials}
+						onShowInChat={showMaterialInChat}
+						onOpenPlan={() => setPlanOpen(true)}
+						sideQuestion={sideThread.state?.mode === "panel" ? (
+							<SideThreadBody
+								key={sideThread.state.threadId}
+								state={sideThread.state}
+								chatId={chatId}
+								draft={sideThread.draftFor(sideThread.state.threadId)}
+								readDraft={sideThread.draftFor.bind(null, sideThread.state.threadId)}
+								dictation={sideDictationFor(sideThread.state.threadId)}
+								onDraftChange={sideThread.saveDraft.bind(null, sideThread.state.threadId)}
+								onAsk={(text, retry) => sideThread.ask(text, retry, sideThread.state!.threadId)}
+								onStop={sideThread.stop}
+								onExpand={sideThread.expand}
+								onFloat={sideThread.float}
+								onClose={closeSideThread}
+								onCurrentStep={goToCurrentSideStep}
+							/>
+						) : undefined}
+					/>
 				)}
 
 				{sideThread.state?.mode === "popover" && (
@@ -2283,6 +2352,7 @@ export function Chat({
 				</div>
 			</div>
 		</div>
+		</SidePanelContext.Provider>
 		</CitationActionsContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>

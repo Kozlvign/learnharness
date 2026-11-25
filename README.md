@@ -27,6 +27,8 @@
 > And **practice evidence**: each proposition's card in the knowledge graph lists what happened when practice exercised it, as dated events rather than a grade. See [docs/evidence.md](docs/evidence.md).
 >
 > And **Anki cards from mistakes**: each mistake, in any phase, becomes a flashcard in your own Anki, written after the tutor explains the right idea. **Settings → Anki**. See [docs/anki.md](docs/anki.md).
+>
+> And a **side panel** in each session: the tutor's demos, figures, images, diagrams and readings open beside the conversation, so you can work a demo while its question stays open. **Ctrl+E**. See [docs/side-panel.md](docs/side-panel.md).
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 

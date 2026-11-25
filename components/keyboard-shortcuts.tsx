@@ -142,6 +142,12 @@ export function KeyboardShortcuts() {
 					e.preventDefault();
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 					break;
+				// Fork: side panel (docs/side-panel.md). The chat view owns it;
+				// claim the chord so a browser's own Ctrl+E never fires too.
+				case "toggle-side-panel":
+					e.preventDefault();
+					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					break;
 				case "find":
 					// The mounted surface owns Find (session text / graph nodes).
 					// Claim Mod+F so Chromium's whole-window finder cannot open too.

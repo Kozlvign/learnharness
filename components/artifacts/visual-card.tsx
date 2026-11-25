@@ -9,6 +9,8 @@ import { useSessionMermaid } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { SvgImage } from "@/components/artifacts/svg-image";
+// Fork: side panel (docs/side-panel.md).
+import { OpenInSidePanelButton } from "@/components/side-panel-context";
 import { embedLearnerImage, type ArtifactPartProps, type VisualResult } from "@/src/core";
 import { useImageSnapshot } from "./use-image-snapshot";
 
@@ -175,6 +177,8 @@ export function VisualOutputCard({
 							<MaximizeIcon className="size-3.5" />
 						</button>
 					)}
+					{/* Fork: side panel (docs/side-panel.md). */}
+					{messageId && <OpenInSidePanelButton target={{ messageId }} />}
 				</div>
 			</div>
 		</div>

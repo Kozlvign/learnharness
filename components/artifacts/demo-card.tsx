@@ -7,6 +7,8 @@ import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
+// Fork: side panel (docs/side-panel.md).
+import { OpenInSidePanelButton } from "@/components/side-panel-context";
 import type { ArtifactPartProps, DemoResult } from "@/src/core";
 
 /**
@@ -199,6 +201,8 @@ function DemoFrame({
 					>
 						<DownloadIcon className="size-3.5" />
 					</button>
+					{/* Fork: side panel (docs/side-panel.md). */}
+					{messageId && <OpenInSidePanelButton target={{ messageId }} />}
 				</div>
 			</div>
 			{state.error && (

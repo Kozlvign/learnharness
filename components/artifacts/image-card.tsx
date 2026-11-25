@@ -4,6 +4,8 @@ import { DownloadIcon, MaximizeIcon } from "lucide-react";
 import { useSessionMermaid } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
+// Fork: side panel (docs/side-panel.md).
+import { OpenInSidePanelButton } from "@/components/side-panel-context";
 import type { ArtifactPartProps, ImageSnapshot, ShowImageDetails } from "@/src/core";
 import { useImageSnapshot } from "./use-image-snapshot";
 
@@ -56,17 +58,17 @@ export function ImageCard({ part }: ArtifactPartProps) {
 			</div>
 		);
 	}
-	return <StoredImageCard details={image} />;
+	return <StoredImageCard details={image} toolCallId={part.toolCallId} />;
 }
 
-function StoredImageCard({ details }: { details: ShowImageDetails }) {
+function StoredImageCard({ details, toolCallId }: { details: ShowImageDetails; toolCallId?: string }) {
 	const { image, failed } = useImageSnapshot(details.snapshotId);
 	if (!image) return <div className="my-4 text-sm text-muted-foreground" role="status">{failed ? "Image snapshot could not be loaded." : "Loading image…"}</div>;
-	return <ImagePresentation image={{ ...image, path: details.path, caption: details.caption }} />;
+	return <ImagePresentation image={{ ...image, path: details.path, caption: details.caption }} toolCallId={toolCallId} />;
 }
 
 /** Resolved presentation shared by inline display, download and fullscreen. */
-export function ImagePresentation({ image }: { image: ImageSnapshot & Pick<ShowImageDetails, "path" | "caption"> }) {
+export function ImagePresentation({ image, toolCallId }: { image: ImageSnapshot & Pick<ShowImageDetails, "path" | "caption">; toolCallId?: string }) {
 	const overlay = useSessionMermaid();
 	const save = () => {
 		const bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0));
@@ -121,6 +123,8 @@ export function ImagePresentation({ image }: { image: ImageSnapshot & Pick<ShowI
 							<MaximizeIcon className="size-3.5" />
 						</button>
 					)}
+					{/* Fork: side panel (docs/side-panel.md). */}
+					{toolCallId && <OpenInSidePanelButton target={{ toolCallId }} />}
 				</div>
 			</figcaption>
 		</figure>
