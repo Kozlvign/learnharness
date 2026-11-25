@@ -731,3 +731,9 @@ body {
 	outline: 1px solid var(--border);
 	border-radius: 0.25rem;
 }
+/* Fork: side panel (docs/side-panel.md) — "Show in chat" marks the item. */
+.lh-material-highlight {
+	outline: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+	outline-offset: 4px;
+	border-radius: 0.75rem;
+}

@@ -40,6 +40,8 @@ import type { ExtraProps } from "streamdown";
 import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
 import { useAppearance } from "@/components/settings/appearance";
 import { MermaidError } from "@/components/mermaid-error";
+// Fork: side panel (docs/side-panel.md).
+import { OpenInSidePanelButton } from "@/components/side-panel-context";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
 import { Hint } from "@/components/ui/hint";
@@ -229,6 +231,9 @@ function MermaidInline({ chart }: { chart: string }) {
 					</button>
 				</Hint>
 				)}
+				{/* Fork: side panel (docs/side-panel.md). */}
+				<OpenInSidePanelButton target={{ chart }}
+					className="flex size-6 items-center justify-center p-0 text-muted-foreground/70 opacity-0 transition-opacity group-hover/md:opacity-100" />
 			</div>}
 		</div>
 	);

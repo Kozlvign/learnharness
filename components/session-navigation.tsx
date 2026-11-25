@@ -23,6 +23,38 @@ export function scrollSessionTarget(target: Range | HTMLElement, scope: HTMLElem
 	}
 }
 
+// Fork: side panel (docs/side-panel.md) — "Show in chat".
+const REVEAL_FLASH_CLASS = "lh-material-highlight";
+const revealFlashes = new WeakMap<HTMLElement, number>();
+
+/** Scroll the transcript so `target` sits near its top and flash it — the
+ *  side panel's "Show in chat". Older rows use content-visibility: auto, so
+ *  the rows above settle their real height only once painted; the aim is
+ *  re-checked for a few frames. Returns false when the target is not in
+ *  the transcript. */
+export function revealSessionElement(target: HTMLElement, context: SessionScrollContext | null): boolean {
+	const main = context?.scrollRef.current;
+	if (!context || !main || !main.contains(target)) return false;
+	scrollSessionTarget(target, main, context);
+	let frames = 0;
+	const settle = () => {
+		if (++frames > 6 || !target.isConnected) return;
+		const offset = target.getBoundingClientRect().top - main.getBoundingClientRect().top;
+		const room = main.scrollHeight - main.clientHeight - main.scrollTop;
+		if (Math.abs(offset - 16) > 2 && (offset < 16 || room > 1)) scrollSessionTarget(target, main, context);
+		requestAnimationFrame(settle);
+	};
+	requestAnimationFrame(settle);
+	const previous = revealFlashes.get(target);
+	if (previous !== undefined) window.clearTimeout(previous);
+	target.classList.add(REVEAL_FLASH_CLASS);
+	revealFlashes.set(target, window.setTimeout(() => {
+		target.classList.remove(REVEAL_FLASH_CLASS);
+		revealFlashes.delete(target);
+	}, 2_000));
+	return true;
+}
+
 /** React owns message markup; this controller adds no messages or content.
  * Arrival on a full load is the browser's own hash scroll; this watcher owns
  * SPA arrivals (graph links) and later hash changes. The mount path polls on
