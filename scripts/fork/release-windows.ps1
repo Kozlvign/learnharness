@@ -17,9 +17,18 @@
     number: upstream 0.3.8, revision 1 -> 0.3.801. They are applied at build
     time only, so package.json keeps upstream's version and merges stay clean.
 
+    The build records the commit it was made from and this checkout's folder
+    in its package.json (lhForkCommit, lhForkSource). The app's update button
+    (electron/fork-update.cjs) compares that commit with the fork's main and
+    runs this script with -ForkOnly to update.
+
 .EXAMPLE
     .\release-windows.ps1 -Install
     Sync, build, publish, then install the new build on this computer.
+
+.EXAMPLE
+    .\release-windows.ps1 -ForkOnly -Install
+    Release what is on the fork's main, without merging upstream.
 
 .EXAMPLE
     .\release-windows.ps1 -NoPublish
@@ -29,6 +38,10 @@
 param(
     # Do not merge upstream changes first.
     [switch]$NoSync,
+    # Bring this checkout to the fork's main instead of merging upstream. When
+    # the fork was rewritten on GitHub (rebased onto upstream), the checkout is
+    # reset to it; this only runs on a clean checkout.
+    [switch]$ForkOnly,
     # Build only: no tag, push or release.
     [switch]$NoPublish,
     # Install the new build silently afterwards (skipped while the app runs).
@@ -39,9 +52,11 @@ param(
     [switch]$NoTranslate,
     # The fork on GitHub.
     [string]$Repository = 'Kozlvign/learnharness',
-    # Write the outcome here as JSON (ok, version, installer, message, log).
-    # auto-update.ps1 reads it.
-    [string]$ResultFile
+    # Write the outcome here as JSON (ok, version, installer, built, commit,
+    # message, log). auto-update.ps1 and the app's update button read it.
+    [string]$ResultFile,
+    # Write the current step here as JSON (step, log), for the update button.
+    [string]$ProgressFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,7 +69,12 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir ('release-{0:yyyyMMdd-HHmmss}.log' -f (Get-Date))
 Start-Transcript -LiteralPath $log | Out-Null
 
-function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
+function Step([string]$Text) {
+    Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan
+    if ($ProgressFile) {
+        try { [IO.File]::WriteAllText($ProgressFile, ([ordered]@{ step = $Text; log = $log } | ConvertTo-Json), (New-Object Text.UTF8Encoding($false))) } catch { }
+    }
+}
 # Windows PowerShell turns a native program's stderr into error records when
 # output is redirected; with Stop they would end the script on a mere warning.
 # Exit codes decide success instead.
@@ -85,6 +105,9 @@ $exitCode = 0
 $resultVersion = $null
 $resultInstaller = $null
 $resultMessage = $null
+# Whether this run built a new installer, and from which commit.
+$resultBuilt = $false
+$resultCommit = $null
 # One release at a time on this computer, whichever checkout it runs from:
 # two runs would build the same next version and race to publish it.
 $releaseLock = New-Object System.Threading.Mutex($false, 'Local\LearnHarness-fork-release')
@@ -101,7 +124,22 @@ try {
     if (Invoke-Git @('status', '--porcelain', '--untracked-files=no')) { throw 'The working tree has uncommitted changes. Commit or discard them first.' }
     if (-not (Invoke-Git @('remote') | Where-Object { $_ -eq 'upstream' })) { Invoke-Git @('remote', 'add', 'upstream', 'https://github.com/amosblomqvist/learnharness.git') | Out-Null }
 
-    if (-not $NoSync) {
+    if ($ForkOnly) {
+        Step 'Syncing with the fork'
+        Invoke-Git @('fetch', '--quiet', 'origin') | Out-Null
+        $behind = [int](Invoke-Git @('rev-list', '--count', 'HEAD..origin/main'))
+        $ahead = [int](Invoke-Git @('rev-list', '--count', 'origin/main..HEAD'))
+        if ($behind -gt 0 -and $ahead -gt 0) {
+            # The fork was rewritten on GitHub (rebased onto upstream). The
+            # working tree was found clean above; local commits are only
+            # translations, which the next step makes again.
+            Invoke-Git @('reset', '--quiet', '--hard', 'origin/main') | Out-Null
+            Write-Host "The fork's main was rewritten on GitHub. Reset this checkout to it."
+        } elseif ($behind -gt 0) {
+            Invoke-Git @('merge', '--ff-only', '--quiet', 'origin/main') | Out-Null
+            Write-Host "Moved to the fork's main ($behind new commits)."
+        } else { Write-Host "Already up to date with the fork's main." }
+    } elseif (-not $NoSync) {
         Step 'Syncing with upstream'
         Invoke-Git @('fetch', '--quiet', 'origin') | Out-Null
         Invoke-Git @('fetch', '--quiet', 'upstream') | Out-Null
@@ -145,6 +183,8 @@ try {
     foreach ($path in 'dist', (Join-Path '.next' 'standalone')) { if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force } }
     Native 'npm' @('ci', '--no-audit', '--no-fund')
     if (-not (Test-Path -LiteralPath (Join-Path $repo 'node_modules\electron\dist\electron.exe'))) { Native 'node' @('node_modules/electron/install.js') }
+    # The core plugins' own dependencies (@codemirror/*); the build needs them.
+    Native 'npm' @('run', 'plugins:setup')
 
     if (-not $NoTranslate) {
         Step 'Translating new interface text'
@@ -168,7 +208,9 @@ try {
     Native 'node' @('scripts/build-server.mjs')
     Native 'node' @('scripts/smoke-server.mjs', '--electron')
     Native 'node' @('scripts/fork/check-dictation-runtime.mjs')
-    Native 'npx' @('electron-builder', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$version")
+    # The update button compares this commit with the fork's main.
+    $commit = Invoke-Git @('rev-parse', 'HEAD') | Select-Object -First 1
+    Native 'npx' @('electron-builder', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$version", "-c.extraMetadata.lhForkCommit=$commit", "-c.extraMetadata.lhForkSource=$repo")
     $installer = Join-Path $repo "dist\LearnHarness-$version-x64-setup.exe"
     if (-not (Test-Path -LiteralPath $installer)) { throw "The installer was not produced: $installer" }
 
@@ -176,7 +218,13 @@ try {
         Step 'Publishing'
         $tag = "v$version"
         Invoke-Git @('tag', '-a', $tag, '-m', "LearnHarness $version (Claude fork of upstream $upstreamVersion)") | Out-Null
-        Invoke-Git @('push', '--quiet', 'origin', 'main', $tag) | Out-Null
+        # All or nothing: a main that moved on GitHub during the build leaves
+        # no tag without its release behind.
+        try { Invoke-Git @('push', '--quiet', '--atomic', 'origin', 'main', $tag) | Out-Null }
+        catch {
+            try { Invoke-Git @('tag', '-d', $tag) | Out-Null } catch { }
+            throw "Nothing was published: pushing main and $tag to GitHub failed. If main moved on GitHub during the build, run the update again. $($_.Exception.Message)"
+        }
         $assets = @($installer, "$installer.blockmap", (Join-Path $repo 'dist\latest.yml'))
         $notes = "LearnHarness $upstreamVersion with the Claude connection (Claude models through your own Claude Code sign-in), a Brazilian Portuguese interface and tutor (Settings > General > Language), images in messages (paste, drop or attach them), and local dictation in Portuguese and English with no key (Settings > Providers > Dictation). Fork revision $revision.`n`nInstalled copies update automatically. Upstream changes: https://github.com/amosblomqvist/learnharness/releases"
         Native 'gh' (@('release', 'create', $tag) + $assets + @('--repo', $Repository, '--title', "LearnHarness $version", '--notes', $notes, '--latest'))
@@ -184,6 +232,8 @@ try {
     }
     $resultVersion = $version
     $resultInstaller = $installer
+    $resultBuilt = $true
+    $resultCommit = $commit
 
     if ($Install) {
         Step 'Installing'
@@ -206,7 +256,7 @@ try {
     Stop-Transcript | Out-Null
     Write-Host "Log: $log"
     if ($ResultFile) {
-        $result = [ordered]@{ ok = ($exitCode -eq 0); version = $resultVersion; installer = $resultInstaller; message = $resultMessage; log = $log }
+        $result = [ordered]@{ ok = ($exitCode -eq 0); version = $resultVersion; installer = $resultInstaller; built = $resultBuilt; commit = $resultCommit; message = $resultMessage; log = $log }
         [IO.File]::WriteAllText($ResultFile, ($result | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
     }
 }

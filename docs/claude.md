@@ -101,6 +101,33 @@ Installed copies update themselves from the fork's releases: `publish` in `elect
 
 Only one release runs at a time on the computer. Each run writes a log to `%LOCALAPPDATA%\LearnHarness-fork\logs`.
 
+### Update button
+
+A change merged into the fork's `main` reaches the installed app only through a new build. The icon beside **Settings**, at the bottom of the sidebar, makes that one click:
+
+- **Checking.** The app checks once when it opens, and again with **Check now**. It runs `git fetch` in the checkout the app was built from, then compares the installed commit with `origin/main`. When `main` has changes the app lacks, the icon shows a dot. Its panel lists those changes by commit type (New feature, Fix, Performance, Tweak) and shows both versions.
+  - Only changes to the app count. The fork's scripts, `docs/` and the README are left out, as the release script leaves them out.
+  - After a rebase of the fork onto upstream, changes already installed are not listed again.
+  - Checking never builds anything.
+- **Update.** It runs `release-windows.ps1 -ForkOnly` in that checkout, in the background and with no window:
+  - It moves the checkout to the fork's `main` without merging upstream. If `main` was rewritten on GitHub, a clean checkout is reset to it.
+  - It translates, checks, builds and publishes the release, as above. It takes about 7 minutes, and the panel shows the step.
+  - It keeps going if the app is closed. The next launch shows the build still running, finished or failed.
+- **Restart now** closes the app, installs the new version silently and opens it. Without a restart, the new version installs when the app closes.
+- If a step fails, the panel shows the script's message and the path of its log. The installed version doesn't change.
+
+How it works:
+
+- The release script records, in the build's `package.json`, the commit it built (`lhForkCommit`) and the checkout's folder (`lhForkSource`). Builds without them, such as upstream's, development builds and CI builds, have no button.
+- The panel's state lives in `%LOCALAPPDATA%\LearnHarness-fork\app-update`. `run.json` holds the running script's process, the script writes its step to `progress.json` and its outcome to `result.json`, and the installer runs with `--updated /S` (plus `--force-run` on a restart).
+- To try the panel from a development shell, set `LH_FORK_COMMIT` and `LH_FORK_SOURCE` to a commit and a checkout.
+
+| File | Role |
+| --- | --- |
+| `electron/fork-update.cjs` | Checking, starting the script, following it across launches, installing |
+| `components/fork-update-button.tsx` | The icon and its panel |
+| `tests/fork-update.test.ts`, `tests/render-fork-update.test.tsx` | Tests with temporary git repositories and a fake script |
+
 ### Automatic updates
 
 `scripts/fork/install-update-task.ps1` sets up this computer so the desktop icon always opens what is on the fork's `main`. Run it once from a checkout of `main`. It does three things:

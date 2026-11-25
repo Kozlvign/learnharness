@@ -61,6 +61,7 @@ const STORAGE_KEY = "lh:sidebar-open";
  */
 import type { ChatGPTControlBridge, NativeSubscriptionControlBridge } from "@/src/core";
 import type { UpdateState } from "@/components/settings/update-settings.tsx";
+import { ForkUpdateButton, type ForkUpdateBridge } from "@/components/fork-update-button";
 import { FilePathDropZone } from "@/components/file-path-drop-zone";
 const SIDEBAR_AUTOCLOSE = 928;
 
@@ -95,6 +96,8 @@ declare global {
 			/** Explicit manual check also downloads and stages available updates. */
 			checkForUpdates?: () => Promise<void>;
 			installUpdate?: () => void;
+			/** Fork: the update button beside Settings (electron/fork-update.cjs). */
+			forkUpdate?: ForkUpdateBridge;
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
 			takeStartupMessage?: () => Promise<StartupMessageOffer | null>;
 			dismissStartupMessage?: (id: string) => Promise<boolean>;
@@ -1040,7 +1043,7 @@ function SessionsSidebar() {
 					{/* Settings entry (settings-app wave): same row language as
 					    New session — quiet, bottom-pinned, opens the centered
 					    dialog (also mod+, in the keyboard registry). */}
-					<div className="px-3 pb-3 pt-1">
+					<div className="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
 						<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"
@@ -1052,6 +1055,8 @@ function SessionsSidebar() {
 								Settings
 							</button>
 						</Hint>
+						{/* Fork: checks the fork's main and updates the installed app. */}
+						<ForkUpdateButton />
 					</div>
 				</div>
 

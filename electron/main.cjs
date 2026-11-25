@@ -619,6 +619,37 @@ function checkForUpdatesFromMenu() {
 	checkForUpdates({ manual: true });
 }
 
+// Fork (update button, docs/claude.md): the installed fork app checks the
+// fork's main and rebuilds itself with the release script. Builds without the
+// release script's metadata (upstream, dev, CI) leave it off.
+let forkUpdate = null;
+
+function setupForkUpdate() {
+	try {
+		const { createForkUpdate, forkUpdateSource } = require("./fork-update.cjs");
+		const source = forkUpdateSource({ packageJsonPath: path.join(__dirname, "..", "package.json"), env: process.env, platform: process.platform });
+		if (!source) return;
+		forkUpdate = createForkUpdate({
+			source,
+			stateDir: path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "LearnHarness-fork", "app-update"),
+			log,
+			notify: (state) => {
+				for (const win of BrowserWindow.getAllWindows()) {
+					try {
+						win.webContents.send("lh:fork-update-status", state);
+					} catch {
+						/* window mid-teardown — the snapshot covers a later load */
+					}
+				}
+			},
+		});
+		log(`fork update: on (${source.commit.slice(0, 7)} from ${source.checkout})`);
+	} catch (err) {
+		forkUpdate = null;
+		log(`fork update: unavailable (${err?.message ?? err})`);
+	}
+}
+
 function zoomStep(win, dir) {
 	const current = win.webContents.getZoomFactor();
 	const next =
@@ -820,6 +851,34 @@ async function main() {
 		checkForUpdates({ manual: true });
 	});
 
+	// Fork update button: same sender rule as the updater channels above.
+	setupForkUpdate();
+	const forkUpdateSender = (event) => trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) && trustedSender(event, new URL(url).origin, BrowserWindow);
+	ipcMain.handle("lh:fork-update:get", (event) => {
+		if (!forkUpdateSender(event)) throw new Error("Untrusted desktop request.");
+		return forkUpdate?.state() ?? { status: "unsupported", revision: 0 };
+	});
+	ipcMain.handle("lh:fork-update:check", (event) => {
+		if (!forkUpdateSender(event)) throw new Error("Untrusted desktop request.");
+		return forkUpdate?.check();
+	});
+	ipcMain.handle("lh:fork-update:start", (event) => {
+		if (!forkUpdateSender(event)) throw new Error("Untrusted desktop request.");
+		return forkUpdate?.start();
+	});
+	ipcMain.on("lh:fork-update:restart", (event) => {
+		if (!forkUpdateSender(event)) {
+			log("fork update: ignored restart request from an untrusted sender");
+			return;
+		}
+		// The installer waits for this app to exit, then opens the new version.
+		if (forkUpdate?.installNow()) {
+			killServer();
+			app.quit();
+		}
+	});
+	app.on("will-quit", () => forkUpdate?.installOnQuit());
+
 	// Sidebar-at-narrow-window (owner, 2026-09-17): the renderer auto-closes
 	// the sidebar below SIDEBAR_AUTOCLOSE (928px); opening it again at that
 	// width asks the window to widen instead — the layout never has to
@@ -865,4 +924,6 @@ async function main() {
 		checkForUpdates();
 		setInterval(() => checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);
 	}
+	// Fork update button: one quiet check per launch; updating needs a click.
+	void forkUpdate?.check();
 }

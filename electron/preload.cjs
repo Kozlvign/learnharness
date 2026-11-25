@@ -24,6 +24,10 @@
  *   snapshot for a late subscriber; checkForUpdates requests a manual
  *   check (including download/install-on-quit, even with automatic checks OFF).
  *
+ *   window.lh.forkUpdate — the fork's update button: get/check/start/
+ *   restart and onStatus ("lh:fork-update-status" pushes). Main ignores it
+ *   in builds that cannot update themselves (status "unsupported").
+ *
  *   window.lh.onOpenSettings(cb) — menu navigation, buffered until React
  *   subscribes after a window is reopened. Browser builds have no bridge.
  *
@@ -99,6 +103,19 @@ contextBridge.exposeInMainWorld("lh", {
 	installUpdate: () => ipcRenderer.send("lh:update-install"),
 	getUpdateState: () => ipcRenderer.invoke("lh:update:get"),
 	checkForUpdates: () => ipcRenderer.invoke("lh:update:check"),
+	// Fork (update button, electron/fork-update.cjs): check the fork's main,
+	// rebuild with the release script, restart into the new version.
+	forkUpdate: {
+		get: () => ipcRenderer.invoke("lh:fork-update:get"),
+		check: () => ipcRenderer.invoke("lh:fork-update:check"),
+		start: () => ipcRenderer.invoke("lh:fork-update:start"),
+		restart: () => ipcRenderer.send("lh:fork-update:restart"),
+		onStatus: (cb) => {
+			const listener = (_event, state) => cb(state);
+			ipcRenderer.on("lh:fork-update-status", listener);
+			return () => ipcRenderer.removeListener("lh:fork-update-status", listener);
+		},
+	},
 	onOpenSettings: (cb) => {
 		openSettingsListener = cb;
 		if (pendingOpenSettings !== null) {
