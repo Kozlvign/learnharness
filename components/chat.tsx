@@ -10,7 +10,7 @@ import { SubmittedImages } from "./submitted-images";
 import { usePageSurfaceBoundary, SurfaceRegion } from "./plugin-surfaces";
 import { findSurfaceBoundary } from "./plugin-surface-targets";
 import { scheduleOpeningSubmission } from "./plugin-submission-opening";
-import { activeProblemOccurrenceOf, buildAnswer, toClientQuestion, type PluginSubmission, type PluginSubmissionTarget, type QuestionData } from "@/src/core";
+import { activeProblemOccurrenceOf, answerAttachments, buildAnswer, toClientQuestion, type PluginSubmission, type PluginSubmissionTarget, type QuestionData } from "@/src/core";
 import { validatePluginBuiltinSubmissionAnswer } from "@/src/core";
 import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
@@ -530,12 +530,14 @@ export function Chat({
 			if (p) {
 				const question = (p.input as { question?: string } | null)?.question ?? "";
 				const reading = readingThinkingRef.current.trim() || undefined;
+				// Fork: the reading images ride the dismissal into the record, like its text (docs/images.md).
+				const attachments = answerAttachments({ readingThinking: readingImagesRef.current?.names() });
 				clearReadingThinking();
 				void closeSideThreadRef.current(); // its note lands after the skip
 				const answer = dismissedAnswer(toolQuestionKind(p.tool), question);
 				void dismissQuestion(
 					p.toolCallId,
-					reading ? { ...answer, readingThinking: reading } : answer,
+					{ ...answer, ...(reading ? { readingThinking: reading } : {}), ...(attachments ? { attachments } : {}) },
 					p.key,
 				);
 				if (busyRef.current) abortInFlightTurn();
@@ -656,6 +658,11 @@ export function Chat({
 	 * separate `readingThinking` field. Reset per pending question. */
 	const [readingThinkingSeed, setReadingThinkingSeed] = useState({ questionId: null as string | null, value: "", revision: 0 });
 	const readingThinkingRef = useRef("");
+	// Fork: the reading field's attached images (docs/images.md). The tray
+	// lives in the DockOverlay, which knows when the check is still closed
+	// (the field's claim on pastes and drops); it rides the check answer.
+	const readingImagesRef = useRef<ComposerImages | null>(null);
+	const readingImagesKeyRef = useRef<string | null>(null);
 
 	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
 	// thinking row to one state — transcript rows default open, so the
@@ -673,6 +680,7 @@ export function Chat({
 	const clearReadingThinking = useCallback(() => {
 		readingThinkingRef.current = "";
 		setReadingThinkingSeed((previous) => ({ ...previous, value: "", revision: previous.revision + 1 }));
+		readingImagesRef.current?.clear();
 	}, []);
 	const pendingQuestionId = pendingPlugin ? pluginQuestionOccurrenceKey(pendingPlugin.occurrence) : pending?.key ?? null;
 	useLayoutEffect(() => {
@@ -680,6 +688,11 @@ export function Chat({
 		// call restores the reading channel alongside the form's snapshot.
 		const value = pendingPlugin ? pluginQuestionDraft(pendingPlugin).readingThinking : pendingQuestionId ? questionDraft(pendingQuestionId)?.readingThinking ?? "" : "";
 		readingThinkingRef.current = value;
+		// Fork: the reading images follow the same law, once per question (docs/images.md).
+		if (readingImagesKeyRef.current !== pendingQuestionId) {
+			readingImagesKeyRef.current = pendingQuestionId;
+			readingImagesRef.current?.restore(!pendingPlugin && pendingQuestionId ? questionDraft(pendingQuestionId)?.readingAttachments ?? [] : []);
+		}
 		setReadingThinkingSeed((previous) =>
 			previous.questionId === pendingQuestionId && previous.value === value
 				? previous
@@ -741,9 +754,15 @@ export function Chat({
 	const prepareBuiltin: PrepareBuiltinSubmission = ({ question, capture, isCurrent }: BuiltinSubmissionCapture) => {
 		const target = builtinTarget(question), original = pending;
 		if (!target || !original || busyRef.current || compacting) return;
+		// Fork: reading images still attaching hold the submit (docs/images.md).
+		if (requiresReveal && readingImagesRef.current?.isUploading()) return;
+		// Fork: the attached images by channel, captured with the rest (docs/images.md).
+		let fieldImages: readonly string[] = [], readingImages: readonly string[] = [];
 		void runSubmission(target, () => {
 			const raw = capture();
-			saveQuestionDraft(original.key, { readingThinking: readingThinkingRef.current });
+			fieldImages = raw.attachments ?? [];
+			readingImages = requiresReveal ? readingImagesRef.current?.names() ?? [] : [];
+			saveQuestionDraft(original.key, { readingThinking: readingThinkingRef.current, readingAttachments: readingImages });
 			return { type: "answer", answer: {
 				...(raw.dontKnow !== undefined ? { dontKnow: raw.dontKnow } : {}), ...(raw.values !== undefined ? { values: raw.values } : {}),
 				...(raw.other !== undefined ? { other: raw.other } : {}), ...(raw.text !== undefined ? { text: raw.text } : {}),
@@ -754,13 +773,14 @@ export function Chat({
 			return isCurrent() && !busyRef.current && now?.messageId === original.messageId && now.contentIndex === original.contentIndex && now.toolCallId === original.toolCallId && now.tool === original.tool;
 		}, async (prepared, attempt) => {
 			if (prepared.type !== "answer") return false;
-			const raw = validatePluginBuiltinSubmissionAnswer(question, prepared.answer);
+			const raw = validatePluginBuiltinSubmissionAnswer(question, prepared.answer, question.mode === "text" && fieldImages.length > 0);
 			const answer = buildAnswer(question, { ...raw, ...(prepared.thinking.text ? { thinking: prepared.thinking.text } : {}), ...(requiresReveal && prepared.readingThinking.text ? { readingThinking: prepared.readingThinking.text } : {}) }, original.tool);
 			const images = submissionImages(prepared, target.channels);
+			const attachments = answerAttachments({ [question.mode === "text" ? "answer" : "thinking"]: fieldImages, readingThinking: readingImages });
 			// Save newer native edits without changing the prepared payload.
-			capture(); saveQuestionDraft(original.key, { readingThinking: readingThinkingRef.current });
+			capture(); saveQuestionDraft(original.key, { readingThinking: readingThinkingRef.current, readingAttachments: requiresReveal ? readingImagesRef.current?.names() ?? [] : [] });
 			attempt.deliver();
-			return send({ type: "answer", toolCallId: original.toolCallId, occurrence: target.question.occurrence, answer: { ...answer, ...(images ? { images } : {}) } }, attempt.accepted, original.key, attempt.refused);
+			return send({ type: "answer", toolCallId: original.toolCallId, occurrence: target.question.occurrence, answer: { ...answer, ...(images ? { images } : {}), ...(attachments ? { attachments } : {}) } }, attempt.accepted, original.key, attempt.refused);
 		});
 	};
 	const thinkingTarget = (): Extract<PluginSubmissionTarget, { type: "thinking" }> | undefined => {
@@ -768,15 +788,17 @@ export function Chat({
 		if (!surfaceTarget || !activeProblem || activeProblem.pluginProblem || !occurrence) return;
 		return { type: "thinking", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget, channels: ["content"], problem: { occurrence, statement: (activeProblem.input as { statement: string }).statement } };
 	};
-	const prepareThinking: PrepareThinkingSubmission = (capture, clear) => {
+	const prepareThinking: PrepareThinkingSubmission = (capture, clear, attachmentsOf) => {
 		const target = thinkingTarget();
 		if (!target || busyRef.current || compacting) return;
 		let captured = "";
-		void runSubmission(target, () => ({ type: "thinking", content: { text: captured = capture(), images: [] } }), () => !busyRef.current && JSON.stringify(activeProblemOccurrenceOf(submissionLive.current.nativeMessages)) === JSON.stringify(target.problem.occurrence), async (prepared, attempt) => {
+		// Fork: the practice field's attached images (docs/images.md).
+		let attachments: readonly string[] = [];
+		void runSubmission(target, () => { captured = capture(); attachments = attachmentsOf?.() ?? []; return { type: "thinking", content: { text: captured, images: [] } }; }, () => !busyRef.current && JSON.stringify(activeProblemOccurrenceOf(submissionLive.current.nativeMessages)) === JSON.stringify(target.problem.occurrence), async (prepared, attempt) => {
 			if (prepared.type !== "thinking") return false;
-			if (!prepared.content.text.trim() && !prepared.content.images.length) throw new Error("Thinking text or images are required. Your input has been kept.");
+			if (!prepared.content.text.trim() && !prepared.content.images.length && attachments.length === 0) throw new Error("Thinking text or images are required. Your input has been kept.");
 			attempt.deliver();
-			return send({ type: "thinking", problemCallId: target.problem.occurrence.toolCallId, occurrence: target.problem.occurrence, text: prepared.content.text, ...(prepared.content.images.length ? { images: prepared.content.images.map(image => ({ ...image })) } : {}) }, () => { clear(captured); attempt.accepted(); }, undefined, attempt.refused);
+			return send({ type: "thinking", problemCallId: target.problem.occurrence.toolCallId, occurrence: target.problem.occurrence, text: prepared.content.text, ...(prepared.content.images.length ? { images: prepared.content.images.map(image => ({ ...image })) } : {}), ...(attachments.length ? { attachments: [...attachments] } : {}) }, () => { clear(captured); attempt.accepted(); }, undefined, attempt.refused);
 		});
 	};
 	const pluginProblemTarget = (): Extract<PluginSubmissionTarget, { type: "plugin-problem-submission" }> | undefined => {
@@ -2197,6 +2219,7 @@ export function Chat({
 					readingThinking={readingThinkingSeed.value}
 					readingThinkingRevision={readingThinkingSeed.revision}
 					onReadingThinking={(value) => { applyReadingThinking(value); if (pendingPlugin) pluginQuestionDraft(pendingPlugin).readingThinking = value; }}
+					readingImagesRef={readingImagesRef}
 					phase={phases.at(-1) ?? "probe"}
 					turns={turns}
 					contextTokens={contextTokens}
@@ -2260,11 +2283,14 @@ export function Chat({
 						// ride the same callback (QuestionAnswerData.dismissed). The
 						// reading-thinking draft rides along (owner 2026-10-03) — the
 						// check answer is its only carrier.
-						saveQuestionDraft(pending.key, { readingThinking: readingThinkingRef.current });
+						// Fork: the reading images ride along too (docs/images.md).
+						const readingImages = requiresReveal ? readingImagesRef.current?.names() ?? [] : [];
+						saveQuestionDraft(pending.key, { readingThinking: readingThinkingRef.current, readingAttachments: readingImages });
 						const reading = readingThinkingRef.current.trim() || undefined;
+						const attachments = answerAttachments({ ...output.attachments, readingThinking: readingImages });
 						// The pending-id effect clears this only when the question
 						// actually leaves. An offline preflight keeps the draft visible.
-						const send = () => submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, pending.key);
+						const send = () => submitAnswer(pending.tool, pending.toolCallId, { ...output, ...(reading ? { readingThinking: reading } : {}), ...(attachments ? { attachments } : {}) }, pending.key);
 						// Never wait for the helper. The server atomically appends new
 						// raw side updates with this main answer.
 						send();
@@ -2520,6 +2546,7 @@ export function DockOverlay({
 	readingThinking,
 	readingThinkingRevision,
 	onReadingThinking,
+	readingImagesRef,
 	phase,
 	turns,
 	contextTokens,
@@ -2579,6 +2606,9 @@ export function DockOverlay({
 	readingThinking: string;
 	readingThinkingRevision: number;
 	onReadingThinking: (v: string) => void;
+	/** Fork: receives the reading field's image tray (docs/images.md), which
+	 *  ChatView's submit and dismissal seams read, like the draft above. */
+	readingImagesRef?: { current: ComposerImages | null };
 	/** Session phase at the pending question — scales the thinking field. */
 	phase: Phase3;
 	/** The session's usage log — the stats bar beneath the composer folds it. */
@@ -2628,6 +2658,15 @@ export function DockOverlay({
 	// revealed, the normal collapse machine rules apply untouched.
 	const [revealed, setRevealed] = useState(false);
 	const revealPending = requiresReveal && !revealed;
+	// Fork: the reading field's images (docs/images.md). Like dictation, it
+	// takes pastes outside a field and drops while the native check is still
+	// closed; the question dock takes them once it opens. Plugin checks'
+	// reading fields take no images.
+	const readingImages = useComposerImages({ enabled: !!pending && !pluginQuestion && revealPending });
+	// Before ChatView's own layout effects, which restore a question's draft into it.
+	useLayoutEffect(() => {
+		if (readingImagesRef) readingImagesRef.current = readingImages;
+	}, [readingImagesRef, readingImages]);
 
 	const pendingId = pluginQuestion ? pluginQuestionOccurrenceKey(pluginQuestion.occurrence) : unreadablePlugin ? "unreadable-plugin-question" : pending?.key ?? null;
 	const readingInputRef = useRef<HTMLDivElement>(null);
@@ -3056,6 +3095,7 @@ export function DockOverlay({
 									: undefined
 							}
 							claim={revealPending}
+							images={pending && !pluginQuestion ? readingImages : undefined}
 						/>
 					)}
 					<div ref={shellRef} data-attachment-composer="" className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">

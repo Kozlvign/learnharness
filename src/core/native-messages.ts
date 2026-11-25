@@ -46,12 +46,12 @@ import {
 	NEXT_PROBLEM_TEXT,
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
-import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
+import { compactAnswerForModel, type AnswerAttachments, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
 import { expandCitationsForModel } from "./citations.ts";
 import { readPluginQuestionMessageAnnotation, readPluginQuestionAnswer, readPluginQuestionCancellation, samePluginQuestionOccurrence, type PluginQuestionAnnotationRead, type PluginQuestionOccurrence, type PluginQuestionOccurrenceMap, type PluginQuestionSnapshot } from "./plugin-questions.ts";
-import { userContent } from "./attachments.ts";
+import { attachedImage, isAttachmentName, userContent } from "./attachments.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -213,14 +213,25 @@ export function nativeInlineImageContent(text: string, images?: readonly ImageCo
 	return images?.length ? [...(text ? [{ type: "text" as const, text }] : []), ...images.map(image => ({ ...image }))] : text;
 }
 
-/** Compact answer text is the sole text authority; labels identify image channels. */
-export function nativeAnswerContent(answerText: string, images?: PluginSubmissionImages): ToolResultMessage["content"] {
+/** Compact answer text is the sole text authority; labels identify image channels.
+ *  Fork: a channel's attached images (by name, docs/images.md) come first
+ *  under its label, then its inline images. */
+export function nativeAnswerContent(answerText: string, images?: PluginSubmissionImages, attachments?: AnswerAttachments): ToolResultMessage["content"] {
 	const content: ToolResultMessage["content"] = [{ type: "text", text: answerText }];
 	for (const [channel, label] of [["answer", "Answer images"], ["thinking", "Question thinking images"], ["readingThinking", "Reading thinking images"]] as const) {
-		if (!images?.[channel]?.length) continue;
-		content.push({ type: "text", text: `${label}:` }, ...images[channel]!.map(image => ({ ...image })));
+		const attached = attachments?.[channel] ?? [];
+		if (!images?.[channel]?.length && !attached.length) continue;
+		content.push({ type: "text", text: `${label}:` }, ...attached.map(attachedImage), ...(images?.[channel] ?? []).map(image => ({ ...image })));
 	}
 	return content;
+}
+
+/** Fork: a practice-thinking marker's images for the model: the attached
+ *  ones (by name, docs/images.md), then upstream's inline ones. */
+function practiceThinkingImages(details: unknown): ImageContent[] {
+	const { images, attachments } = (details ?? {}) as { images?: ImageContent[]; attachments?: unknown };
+	const attached = Array.isArray(attachments) ? attachments.filter(isAttachmentName).map(attachedImage) : [];
+	return [...attached, ...(images ?? [])];
 }
 
 /** Fork: with attached images (`attachments`, docs/images.md), they lead the
@@ -259,7 +270,9 @@ export function newAnswerResult(
 		role: "toolResult",
 		toolCallId,
 		toolName,
-		content: nativeAnswerContent(JSON.stringify(compactAnswerForModel(answer as QuestionAnswerData)), (answer as QuestionAnswerData).images),
+		// Fork: a dismissal's attached images stay in the record, like its text (docs/images.md).
+		content: nativeAnswerContent(JSON.stringify(compactAnswerForModel(answer as QuestionAnswerData)), (answer as QuestionAnswerData).images,
+			(answer as QuestionAnswerData).dismissed ? undefined : (answer as QuestionAnswerData).attachments),
 		// 0.87.1 narrowed ToolResultMessage.details to JsonRepresentation —
 		// our payloads are JSON-safe answer structures, so the cast is honest.
 		details: answer as ToolResultMessage["details"],
@@ -359,14 +372,15 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string, images?: readonly ImageContent[]): LhMarkerMessage {
+/** Fork: `attachments` are the learner's attached images by name (docs/images.md). */
+export function newThinkingMessage(problemCallId: string, text: string, images?: readonly ImageContent[], attachments?: readonly string[]): LhMarkerMessage {
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "practice-thinking",
 		content: `${THINKING_LABEL}:\n${text}`,
 		display: true,
-		details: { problemCallId, text, ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}) },
+		details: { problemCallId, text, ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}), ...(attachments?.length ? { attachments: [...attachments] } : {}) },
 		timestamp: Date.now(),
 	};
 }
@@ -711,7 +725,7 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 				role: "user",
 				content: problemSubmission ? nativeAnswerContent(marker.content, { answer: problemSubmission.images?.submission, thinking: problemSubmission.images?.thinking })
 					: [{ type: "text", text: marker.customType === "practice-thinking" || marker.customType === "side-question" ? expandCitationsForModel(marker.content) : marker.content }, ...(marker.customType === "practice-thinking"
-						? (marker.details as { images?: ImageContent[] } | null)?.images ?? [] : [])],
+						? practiceThinkingImages(marker.details) : [])],
 				timestamp: marker.timestamp,
 			});
 			continue;

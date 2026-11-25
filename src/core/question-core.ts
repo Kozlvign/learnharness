@@ -467,6 +467,9 @@ export interface QuestionAnswerData {
 	readingThinking?: string;
 	/** Host-owned explicit image channels; never inferred from text or paths. */
 	images?: PluginSubmissionImages;
+	/** Fork: the learner's attached images by name, per channel (docs/images.md).
+	 *  Separate from upstream's inline `images`; empty channels are omitted. */
+	attachments?: AnswerAttachments;
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
@@ -495,6 +498,10 @@ export interface AnswerRequest {
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
 	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
+	/** Fork: the dock field's attached images by name (docs/images.md): the
+	 *  answer's in text mode, the thinking's in select modes. buildAnswer
+	 *  ignores them; the caller files them under `attachments`. */
+	attachments?: readonly string[];
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
@@ -524,11 +531,33 @@ export interface QuestionFormDraft {
 	other: string;
 	text: string;
 	confidenceIndex: number;
+	/** Fork: the field's attached images by name (docs/images.md): "Your
+	 *  thinking" in select modes, "Your answer" in text mode. */
+	attachments?: readonly string[];
 }
 
 export interface QuestionDraft {
 	form?: QuestionFormDraft;
 	readingThinking?: string;
+	/** Fork: the reading field's attached images by name (docs/images.md). */
+	readingAttachments?: readonly string[];
+}
+
+/** Fork: an answer's attached images by name, per channel (docs/images.md). */
+export interface AnswerAttachments {
+	answer?: string[];
+	thinking?: string[];
+	readingThinking?: string[];
+}
+
+/** Fork: the channels that hold images, or undefined when none do. */
+export function answerAttachments(channels: { answer?: readonly string[]; thinking?: readonly string[]; readingThinking?: readonly string[] }): AnswerAttachments | undefined {
+	const out: AnswerAttachments = {};
+	for (const key of ["answer", "thinking", "readingThinking"] as const) {
+		const names = channels[key];
+		if (names?.length) out[key] = [...names];
+	}
+	return Object.keys(out).length ? out : undefined;
 }
 
 /**

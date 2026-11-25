@@ -28,7 +28,7 @@
  * turn rides one composition.
  */
 
-import type { QuestionAnswerData } from "./question-core.ts";
+import type { AnswerAttachments, QuestionAnswerData } from "./question-core.ts";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { validatePluginSubmissionImageArray, validatePluginSubmissionImages, type PluginSubmissionImages, type PluginSubmissionOccurrence } from "./plugin-submissions.ts";
 import type { LhMessage } from "./native-messages.ts";
@@ -73,7 +73,7 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string; images?: ImageContent[]; occurrence?: PluginSubmissionOccurrence }
+	| { type: "thinking"; problemCallId: string; text: string; images?: ImageContent[]; occurrence?: PluginSubmissionOccurrence; /** Fork: attached images by name (docs/images.md); with them the text may be empty. */ attachments?: string[] }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -129,7 +129,10 @@ export function parseDismissInput(input: unknown): DismissInput {
 	if (answer.dismissed !== true) {
 		throw new ChatInputError("dismiss input's answer must be a dismissal (dismissed: true)");
 	}
-	return { type: "dismiss", toolCallId: i.toolCallId, answer };
+	// Fork: a dismissal may carry the reading field's attached images (docs/images.md).
+	const attachments = parsedAnswerAttachments(answer.attachments);
+	const { attachments: _attachments, ...fields } = answer;
+	return { type: "dismiss", toolCallId: i.toolCallId, answer: { ...fields, ...(attachments ? { attachments } : {}) } };
 }
 
 /** A mid-turn steer (owner arc 2026-10-03): the learner's composer message
@@ -162,6 +165,20 @@ function parsedAttachments(value: unknown, kind: string): string[] {
 	const attachments = parseImageList(value);
 	if (attachments === null) throw new ChatInputError(`${kind} input's attachments must be distinct attachment names, at most ${MAX_IMAGES_PER_MESSAGE}`);
 	return attachments;
+}
+
+/** Fork: an answer's attached images, per channel (docs/images.md). Empty
+ *  channels are dropped; undefined when none holds an image. */
+function parsedAnswerAttachments(value: unknown): AnswerAttachments | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "object" || value === null || Array.isArray(value)) throw new ChatInputError("answer attachments must be an object of channels");
+	const out: AnswerAttachments = {};
+	for (const [channel, names] of Object.entries(value)) {
+		if (channel !== "answer" && channel !== "thinking" && channel !== "readingThinking") throw new ChatInputError(`unknown answer attachment channel: ${channel}`);
+		const parsed = parsedAttachments(names, `answer ${channel}`);
+		if (parsed.length > 0) out[channel] = parsed;
+	}
+	return Object.keys(out).length ? out : undefined;
 }
 
 /** The native appends a dismissal makes (pure — same orphan discipline
@@ -267,8 +284,10 @@ export function parseChatInput(input: unknown): ChatInput {
 			const answer = i.answer as QuestionAnswerData;
 			const images = parseImageChannels(answer.images);
 			const occurrence = parseOptionalOccurrence(i.occurrence, images);
-			const { images: _images, ...fields } = answer;
-			return { type: "answer", toolCallId: i.toolCallId, answer: { ...fields, ...(images ? { images } : {}) }, ...(occurrence ? { occurrence } : {}) };
+			// Fork: the learner's attached images, by name (docs/images.md).
+			const attachments = parsedAnswerAttachments(answer.attachments);
+			const { images: _images, attachments: _attachments, ...fields } = answer;
+			return { type: "answer", toolCallId: i.toolCallId, answer: { ...fields, ...(images ? { images } : {}), ...(attachments ? { attachments } : {}) }, ...(occurrence ? { occurrence } : {}) };
 		}
 		case "continue":
 			return { type: "continue" };
@@ -286,10 +305,11 @@ export function parseChatInput(input: unknown): ChatInput {
 			}
 			const images = parseImages(i.images);
 			const occurrence = parseOptionalOccurrence(i.occurrence, images);
-			if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+			const attachments = parsedAttachments(i.attachments, "thinking");
+			if (typeof i.text !== "string" || (!i.text.trim() && !images && attachments.length === 0)) {
 				throw new ChatInputError("thinking input requires non-empty text or images");
 			}
-			return { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...(images ? { images } : {}), ...(occurrence ? { occurrence } : {}) };
+			return { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...(images ? { images } : {}), ...(occurrence ? { occurrence } : {}), ...(attachments.length > 0 ? { attachments } : {}) };
 		}
 		case "next":
 			return { type: "next" };
@@ -341,7 +361,7 @@ export function inputAppends(
 				throw new ChatInputError("thinking input targets no active problem");
 			}
 			if (active.pluginProblem) throw new ChatInputError("This problem requires its registered submission editor");
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.images)];
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.images, input.attachments)];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

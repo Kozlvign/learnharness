@@ -6,6 +6,8 @@ import { composingQuestionKey, pluginQuestionKeySuppressed } from "./plugin-ques
 import { PathInput } from "@/components/path-input";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
+import type { ComposerImages } from "@/components/attachments/use-composer-images";
+import { ComposerImageTray, FieldImagesButton } from "@/components/attachments/composer-images";
 
 /**
  * The reading-thinking field (owner design 2026-10-03, "two questions per
@@ -30,6 +32,7 @@ export function ReadingThinkingField({
 	onOpen,
 	claim,
 	inputRef,
+	images,
 }: {
 	value: string;
 	revision: number;
@@ -44,6 +47,10 @@ export function ReadingThinkingField({
 	/** Primary dictation claim — true while the check is behind its reveal. */
 	claim: boolean;
 	inputRef?: RefObject<HTMLDivElement | null>;
+	/** Fork: the field's attached images (docs/images.md), owned by the
+	 *  page so they ride the check answer. Absent (a plugin question's
+	 *  check) means the field takes no images. */
+	images?: ComposerImages;
 }) {
 	const controller = useOptionalInteractionLayers();
 	const [draft, setDraft] = useState(value);
@@ -65,13 +72,16 @@ export function ReadingThinkingField({
 			data-testid="reading-thinking-field"
 			className="pointer-events-auto mb-2 rounded-2xl border bg-card/60 px-3 py-2 transition-colors focus-within:border-primary/50"
 		>
-			<div className="pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				Thinking while reading
+			{/* Fork: the image button beside the label (docs/images.md). */}
+			<div className="flex items-center justify-between gap-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<span>Thinking while reading</span>
+				{images && <FieldImagesButton images={images} />}
 			</div>
 			<PathInput
 				ref={inputRef}
 				value={draft}
 				onValueChange={applyDraft}
+				onPaste={images?.onPaste}
 				/* py-0.5 (owner round, 2026-10-07): the scrollbar fix. Source
 				   Sans 3's font box is 22px at 16px; lh-input's 1.25 leading
 				   gives a 20px line box — the content area sticks 1px below the
@@ -115,6 +125,7 @@ export function ReadingThinkingField({
 				placeholder="Whatever comes to mind as you read."
 				className="field-sizing-content lh-input max-h-40 w-full resize-none bg-transparent py-0.5 outline-none placeholder:text-muted-foreground/70"
 			/>
+			{images && <ComposerImageTray images={images} className="pt-1" testId="field-images" />}
 		</div>
 	);
 }

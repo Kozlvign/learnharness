@@ -14,6 +14,7 @@ import { ToolContentResponse } from "@/components/ai-elements/message";
 import { QuestionPreview } from "@/components/question-preview";
 import { cn } from "@/lib/utils";
 import {
+	answerAttachments,
 	buildAnswer,
 	toClientQuestion,
 	normalizeQuizType,
@@ -54,6 +55,8 @@ import {
 } from "@/components/question-layout";
 import { useQuestionLayout, type QuestionLayoutRequest } from "@/components/use-question-layout";
 import { captureReadingPosition, holdAcrossSwitch, restoreReadingPosition, revealFocused, trackReadingPosition, visibleFocused } from "@/components/dock-switch";
+import { useComposerImages } from "@/components/attachments/use-composer-images";
+import { ComposerImageTray, FieldImagesButton } from "@/components/attachments/composer-images";
 
 export type { QuestionLayoutRequest } from "@/components/use-question-layout";
 
@@ -479,6 +482,16 @@ function QuestionDockForm({
 	// deliberate (the same number, the same meaning). The dock unmounts
 	// between questions, so each question starts fresh at 50.
 	const [confIdx, setConfIdx] = useState<number>(initialDraft?.confidenceIndex ?? DEFAULT_CONFIDENCE_INDEX);
+	// Fork: the field's attached images (docs/images.md): "Your answer" in
+	// text mode, "Your thinking" in select modes. Pastes outside a text
+	// field and drops come here while the dock holds dictation's claim.
+	// A failed submission's images come back with its draft.
+	const images = useComposerImages({ enabled: dictationClaim });
+	const restoreImages = images.restore;
+	const initialAttachments = useRef(initialDraft?.attachments);
+	useLayoutEffect(() => {
+		if (initialAttachments.current?.length) restoreImages(initialAttachments.current);
+	}, [restoreImages]);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
@@ -513,7 +526,7 @@ function QuestionDockForm({
 
 	const nativeCanSubmit =
 		qd.mode === "text"
-			? text.trim().length > 0
+			? text.trim().length > 0 || images.items.length > 0
 			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
 
 	const canSubmit = nativeCanSubmit || hasPendingInput?.(qd) === true;
@@ -537,6 +550,8 @@ function QuestionDockForm({
 	useLayoutEffect(() => { viewReader?.changed?.(); }, [viewReader, sel, other, text, thinking, confIdx, viewPresentationKey]);
 	const submit = () => {
 		if (!canSubmit || compactionRunning || preparing) return;
+		// Fork: images still attaching hold the submit (docs/images.md).
+		if (images.isUploading()) return;
 		if (onPrepareSubmission) {
 			onPrepareSubmission({ question: qd, isCurrent: () => mounted.current && currentQuestion.current === qd && isInteractionScopeEligible(rootRef.current, controller), capture: captureRequest });
 			return;
@@ -564,6 +579,7 @@ function QuestionDockForm({
 			// Always sent on quiz answers (owner: 50 must mean 50, never
 			// "untouched"); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
+			attachments: images.names(),
 		};
 		// Snapshot before optimistic submission unmounts the form. Ref values
 		// include the dictation finals that just landed, unlike stale closures.
@@ -573,12 +589,17 @@ function QuestionDockForm({
 			other,
 			text: answerTextRef.current,
 			confidenceIndex: confIdx,
+			attachments: req.attachments,
 		});
 		return req;
 	};
 	const doSubmit = () => {
 		if (!canSubmit) return;
-		onSubmit(buildAnswer(qd, captureRequest(), toolName));
+		const req = captureRequest();
+		const answer = buildAnswer(qd, req, toolName);
+		// Fork: the field's attached images (docs/images.md).
+		const attachments = answerAttachments(qd.mode === "text" ? { answer: req.attachments } : { thinking: req.attachments });
+		onSubmit(attachments ? { ...answer, attachments } : answer);
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
@@ -1124,8 +1145,10 @@ function QuestionDockForm({
 					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
 					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 				>
-					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}
+					{/* Fork: the image button beside the label (docs/images.md). */}
+					<div className="flex items-center justify-between gap-2 px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						<span>{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}</span>
+						<FieldImagesButton images={images} />
 					</div>
 					{qd.mode === "text" ? (
 						<PathInput
@@ -1134,6 +1157,7 @@ function QuestionDockForm({
 								answerTextRef.current = value;
 								setText(value);
 							}}
+							onPaste={images.onPaste}
 							onKeyDown={(e) => {
 								if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 								// Esc ends dictation (the dictate decisions: click-again
@@ -1164,6 +1188,7 @@ function QuestionDockForm({
 								thinkingTextRef.current = value;
 								setThinking(value);
 							}}
+							onPaste={images.onPaste}
 							onKeyDown={(e) => {
 								if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 								// Esc ends dictation (the dictate decisions: click-again
@@ -1193,13 +1218,14 @@ function QuestionDockForm({
 							)}
 						/>
 					)}
+					<ComposerImageTray images={images} className="px-2.5 pb-1" testId="field-images" />
 					<div className="flex items-center justify-between gap-2 p-1">
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 						</span>
 						<Button
 							type="submit"
-							disabled={!canSubmit || compactionRunning || preparing}
+							disabled={!canSubmit || compactionRunning || preparing || images.uploading}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>
 							Submit answer

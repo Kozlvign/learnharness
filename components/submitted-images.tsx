@@ -1,18 +1,21 @@
 "use client";
 
 import type { ImageContent } from "@earendil-works/pi-ai";
+import { attachmentUrl } from "./attachments/composer-images";
 import { useSessionMermaid } from "./session-overlay";
 
 // Use session prose metrics, not the compact labels surrounding thinking/images.
 const previewSize = "calc(var(--lh-prose-size) * var(--lh-prose-leading) * 5)";
 
-/** Explicit native image data only. Paths are never interpreted here. */
-export function SubmittedImages({ images }: { images?: readonly Readonly<ImageContent>[] }) {
+/** Explicit native image data only. Paths are never interpreted here.
+ *  Fork: `attachments` are the learner's attached images by name
+ *  (docs/images.md), shown from their files ahead of the inline images. */
+export function SubmittedImages({ images, attachments }: { images?: readonly Readonly<ImageContent>[]; attachments?: readonly string[] }) {
 	const viewer = useSessionMermaid();
-	if (!images?.length) return null;
+	const sources = [...(attachments ?? []).map(attachmentUrl), ...(images ?? []).map((image) => `data:${image.mimeType};base64,${image.data}`)];
+	if (!sources.length) return null;
 	return <div className="w-full space-y-3" data-testid="submitted-images">
-		{images.map((image, index) => {
-			const src = `data:${image.mimeType};base64,${image.data}`;
+		{sources.map((src, index) => {
 			const preview = (
 				// Native accepted bytes have no remote optimization or re-encoding.
 				// eslint-disable-next-line @next/next/no-img-element

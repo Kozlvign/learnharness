@@ -72,6 +72,7 @@ export function ThinkingBlock({
 	label = "YOUR THINKING",
 	text,
 	images,
+	attachments,
 	testId,
 	dataCommit,
 	defaultOpen = false,
@@ -80,6 +81,8 @@ export function ThinkingBlock({
 	label?: string;
 	text: string;
 	images?: readonly Readonly<ImageContent>[];
+	/** Fork: the learner's attached images by name (docs/images.md). */
+	attachments?: readonly string[];
 	testId?: string;
 	/** The practice marker's register flag (commit vs nudge). */
 	dataCommit?: boolean;
@@ -132,7 +135,7 @@ export function ThinkingBlock({
 				<ChevronDownIcon className={cn("size-4 shrink-0 transition-transform", open ? "rotate-180" : "rotate-0")} />
 			</button>
 			{open && (
-				<div>{text && <span className="lh-prose mt-1.5 block whitespace-pre-wrap text-[15px] italic text-foreground/50"><PathText text={text} /></span>}<SubmittedImages images={images} /></div>
+				<div>{text && <span className="lh-prose mt-1.5 block whitespace-pre-wrap text-[15px] italic text-foreground/50"><PathText text={text} /></span>}<SubmittedImages images={images} attachments={attachments} /></div>
 			)}
 		</div>
 	);
