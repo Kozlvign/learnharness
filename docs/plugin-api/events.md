@@ -68,6 +68,9 @@ export interface ServerEvents {
         topic: string;
         data?: unknown;
     };
+    "anki-changed": {
+        chatId: string;
+    };
 }
 ```
 
@@ -95,6 +98,8 @@ export interface ServerEvents {
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
 - ["plugin-message".topic](#serverevents-plugin-messagetopic)
 - ["plugin-message".data](#serverevents-plugin-messagedata)
+- ["anki-changed"](#serverevents-anki-changed)
+- ["anki-changed".chatId](#serverevents-anki-changedchatid)
 
 ### ServerEvents "turn-started"
 
@@ -275,6 +280,23 @@ topic: string;
 
 ```ts
 data?: unknown;
+```
+
+### ServerEvents "anki-changed"
+
+Fork: Anki cards (docs/anki.md). A chat's records in the card ledger
+changed: an open view of the chat re-reads the cards it shows.
+
+```ts
+"anki-changed": {
+    chatId: string;
+};
+```
+
+### ServerEvents "anki-changed".chatId
+
+```ts
+chatId: string;
 ```
 
 ## ServerEventType
