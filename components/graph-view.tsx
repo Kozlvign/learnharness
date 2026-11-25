@@ -74,7 +74,10 @@ import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { graphFolderIds, graphFolderVisibleIds, incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
-import { CLUSTER_LIGHTNESS, GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
+import { CLUSTER_LIGHTNESS, GraphCanvasRenderer, isImpNodeId, type GraphRenderSettings } from "./graph-canvas.ts";
+// Fork: zoom buttons.
+import { GraphZoomControls } from "@/components/graph-zoom-controls";
+import { ZOOM_STEP } from "./graph-zoom.ts";
 import { useAppearance } from "@/components/settings/appearance";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
@@ -971,10 +974,14 @@ export function GraphView({
 	onPracticeSelectionChange,
 	onChainSelectClose,
 	folderFilterSlot,
+	zoomControlsSlot,
 }: {
 	/** Where the folder filter control portals: the home header's top-left
 	 *  chrome, after the sidebar toggle. Absent → no folder filter control. */
 	folderFilterSlot?: HTMLElement | null;
+	/** Fork: where the zoom buttons portal — home's slot beside the
+	 *  composer (above it in narrow windows). Absent → no zoom buttons. */
+	zoomControlsSlot?: HTMLElement | null;
 	/** PRACTICE SELECT (owner vision, 2026-10-04): the LIFTED, persistent
 	 *  pick set — every check/clear in the chain table (however opened)
 	 *  reports the full node list up immediately; the composer-side chip
@@ -1093,6 +1100,8 @@ export function GraphView({
 	// consumed by the visibility feed and the "no matches" hint.
 	const visibleIds = useMemo(() => snapshot ? graphVisibleIds(snapshot, query, folderVisibleIds) : new Set<string>(),
 		[snapshot, query, folderVisibleIds]);
+	// Fork: the fit button frames drawn nodes; implication nodes are pure geometry.
+	const canFit = useMemo(() => [...visibleIds].some((id) => !isImpNodeId(id)), [visibleIds]);
 
 	// Fetch the derived graph. Re-runs when a background pipeline run
 	// finishes (refreshTick) — its merges just landed in the ledger.
@@ -1584,6 +1593,17 @@ export function GraphView({
 
 
 			<PluginGraphActions />
+
+			{/* Fork: zoom buttons, portaled beside the composer (home.tsx). */}
+			{zoomControlsSlot && !isEmpty && createPortal(
+				<GraphZoomControls
+					onZoomOut={() => rendererRef.current?.zoomBy(1 / ZOOM_STEP)}
+					onFit={() => rendererRef.current?.fitVisible()}
+					onZoomIn={() => rendererRef.current?.zoomBy(ZOOM_STEP)}
+					canFit={canFit}
+				/>,
+				zoomControlsSlot,
+			)}
 
 			{/* Legend + filters: search box and per-state toggle rows. */}
 			{/* Top-right controls — separate floating containers (owner,

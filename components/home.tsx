@@ -47,6 +47,7 @@ export function Home({
 	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/", viewKey: "/", bodyRef });
 	const chromeStyle = useSurfaceChromeStyle(surfaceTarget);
 	const [folderFilterSlot, setFolderFilterSlot] = useState<HTMLElement | null>(null);
+	const [zoomControlsSlot, setZoomControlsSlot] = useState<HTMLElement | null>(null); // Fork: zoom buttons
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
 	 * mechanics as the chat composer, owner's consistency ruling): a
@@ -198,6 +199,7 @@ export function Home({
 				{rendering ? (
 					<GraphView
 						folderFilterSlot={folderFilterSlot}
+						zoomControlsSlot={zoomControlsSlot}
 						chainSelectOpen={chainSelectOpen}
 						practiceSelection={pickedIds}
 						onPracticeSelectionChange={setPracticeProps}
@@ -331,6 +333,18 @@ export function Home({
 								))}
 							</div>
 						}
+					/>
+				</div>
+				{/* Fork: the graph's zoom buttons (GraphView portals them here).
+				    Bottom-right, level with the row under the composer; when
+				    the area is under 57.5rem the composer (44rem wide plus
+				    margins) would reach them, so they sit just above the
+				    composer instead, at its right edge. */}
+				<div className="pointer-events-none absolute inset-0 @container">
+					<div
+						ref={setZoomControlsSlot}
+						data-testid="graph-zoom-controls-slot"
+						className="absolute right-2 bottom-5 @max-[57.5rem]:bottom-full @max-[57.5rem]:right-[max(1rem,calc((100cqw_-_44rem)/2))] @max-[57.5rem]:mb-2"
 					/>
 				</div>
 			</div>
