@@ -22,8 +22,13 @@ export async function register() {
 async function registerAnki(): Promise<void> {
 	if (process.env.NODE_ENV === "test") return;
 	try {
-		const { registerAnkiTrigger } = await import("./src/server/anki/trigger.ts");
-		registerAnkiTrigger();
+		// The import stays inside its own runtime check: the edge build drops
+		// only imports guarded right where they are, and the card pipeline
+		// pulls in Node-only modules.
+		if (process.env.NEXT_RUNTIME === "nodejs") {
+			const { registerAnkiTrigger } = await import("./src/server/anki/trigger.ts");
+			registerAnkiTrigger();
+		}
 	} catch (err) {
 		// A broken fork feature must never keep the server from starting.
 		console.error("[anki] the card trigger could not start:", err);
