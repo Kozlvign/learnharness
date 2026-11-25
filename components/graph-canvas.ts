@@ -55,6 +55,7 @@ import { select } from "d3-selection";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import type { Simulation, SimulationLinkDatum } from "d3-force";
 import { clusterHue, type Pt } from "./cluster-geometry.ts";
+import { fitTarget, framedBBox, glideCamera, type CameraTarget } from "./graph-zoom.ts"; // Fork: zoom buttons
 import type { RenderedMode } from "@/src/core";
 import {
 	CHARGE_STRENGTH,
@@ -646,6 +647,9 @@ export class GraphCanvasRenderer {
 	// Smooth wheel zoom: wheel events accumulate a target scale (cursor-
 	// anchored); each tick eases the camera toward it instead of jumping.
 	private zoomTarget: { k: number; x: number; y: number } | null = null;
+	/** Fork: the fit button's glide (zoom and pan together, graph-zoom.ts).
+	 *  Wheel, pan, and the zoom buttons cancel it. */
+	private cameraTarget: CameraTarget | null = null;
 	/** Clock for frame-rate-independent easing (updated every tick). */
 	private lastTickAt = 0;
 	private animating = false;
@@ -916,6 +920,37 @@ export class GraphCanvasRenderer {
 		if (w >= 10 && h >= 10) this.kFit = fitTransform(this.worldBBox, w, h, 40).k;
 	}
 
+	/** Fork: the − / + buttons. Glides like a wheel notch, anchored at the
+	 *  viewport center; clicks in a row compound on the pending target. */
+	zoomBy(factor: number): void {
+		this.cameraTarget = null;
+		const [kMin, kMax] = this.zoomBehavior.scaleExtent();
+		const current = this.zoomTarget?.k ?? this.transform.k;
+		const k = Math.min(Math.max(current * factor, kMin), kMax);
+		this.zoomTarget = { k, x: this.viewW / 2, y: this.viewH / 2 };
+		this.lastTickAt = performance.now();
+		this.markDirty();
+	}
+
+	/** Fork: the fit button. Glides to frame the nodes drawn under the
+	 *  current filter (every node when unfiltered), zooming in no further
+	 *  than where labels become fully visible (fitZoomCap). The label
+	 *  gate's kFit stays the whole graph's. */
+	fitVisible(): void {
+		if (!this.data || !this.settings) return;
+		const w = this.canvas.clientWidth;
+		const h = this.canvas.clientHeight;
+		if (w < 10 || h < 10) return;
+		const visible = this.visible;
+		const bbox = framedBBox(this.data.nodes, (id) => !isImpNodeId(id) && (!visible || visible.has(id)));
+		if (!bbox) return;
+		const fitK = fitTransform(bbox, w, h, 40).k;
+		this.zoomTarget = null;
+		this.cameraTarget = fitTarget(bbox, fitK, this.kFit, this.settings.labelZoom, this.zoomBehavior.scaleExtent());
+		this.lastTickAt = performance.now();
+		this.markDirty();
+	}
+
 	destroy(): void {
 		if (this.frameId !== null) cancelAnimationFrame(this.frameId);
 		if (this.commitTimer) clearTimeout(this.commitTimer);
@@ -939,6 +974,7 @@ export class GraphCanvasRenderer {
 	 *  tick loop (cursor-anchored). Sensitivity formula is d3-zoom's own. */
 	private onWheel = (e: WheelEvent) => {
 		e.preventDefault();
+		this.cameraTarget = null; // Fork: the wheel takes over a fit glide
 		const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002);
 		const { x, y } = this.eventPos(e);
 		const current = this.zoomTarget?.k ?? this.transform.k;
@@ -1012,6 +1048,7 @@ export class GraphCanvasRenderer {
 		}
 		this.downPos = pos;
 		this.zoomTarget = null; // a pan takes over — cancel any zoom glide
+		this.cameraTarget = null; // Fork: and a fit glide
 	};
 
 	private onPointerUp = (e: PointerEvent) => {
@@ -1198,7 +1235,7 @@ export class GraphCanvasRenderer {
 	 *  approach, time constant ZOOM_EASE_MS). Returns true while gliding. */
 	private advanceZoom(dt: number): boolean {
 		const target = this.zoomTarget;
-		if (!target) return false;
+		if (!target) return this.advanceCamera(dt); // Fork: the fit glide
 		const t = this.transform;
 		const blend = 1 - Math.exp(-dt / ZOOM_EASE_MS);
 		let k = t.k + (target.k - t.k) * blend;
@@ -1216,6 +1253,23 @@ export class GraphCanvasRenderer {
 		select(this.canvas).call(
 			this.zoomBehavior.transform,
 			zoomIdentity.translate(x, y).scale(k),
+		);
+		return !done;
+	}
+
+	/** Fork: one fit-glide frame (graph-zoom.ts), same easing clock as the
+	 *  wheel glide and applied through d3-zoom like every camera move. */
+	private advanceCamera(dt: number): boolean {
+		const target = this.cameraTarget;
+		if (!target || this.viewW <= 0 || this.viewH <= 0) {
+			this.cameraTarget = null;
+			return false;
+		}
+		const { camera, done } = glideCamera(this.transform, target, 1 - Math.exp(-dt / ZOOM_EASE_MS), this.viewW, this.viewH);
+		if (done) this.cameraTarget = null;
+		select(this.canvas).call(
+			this.zoomBehavior.transform,
+			zoomIdentity.translate(camera.x, camera.y).scale(camera.k),
 		);
 		return !done;
 	}
