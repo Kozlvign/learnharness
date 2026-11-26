@@ -29,7 +29,7 @@ import {
 	CONFIDENT_ERROR_MIN,
 } from "../../core/anki/contract.ts";
 import { ankiCardId, ankiDeckName, ankiTags } from "../../core/anki/format.ts";
-import { ankiMatchMiss, ankiMissesOf } from "../../core/anki/misses.ts";
+import { ankiMatchMiss, ankiMissesOf, ankiSameConcept } from "../../core/anki/misses.ts";
 import type { ChatRecord } from "../../core/contracts/chat.ts";
 import { placementOf, type SourceOrganization } from "../../core/source-organization.ts";
 import { chatStore } from "../../store/chats.ts";
@@ -48,6 +48,9 @@ export type AnkiTutorPhase = Extract<AnkiPhase, "teach" | "practice">;
 
 /** At most this many misses in the reminder after a saved card. */
 export const ANKI_REMINDER_MAX = 5;
+/** At most this many existing concept cards listed in the reminder after a
+ *  saved concept card, so the tutor sees what is already carded in the course. */
+export const ANKI_CONCEPT_REMINDER_MAX = 10;
 const REMINDER_CHARS = 100;
 
 // ─── shared record helpers (also used by the pipeline) ──────────────────────
@@ -171,6 +174,29 @@ function reminder(misses: readonly AnkiMiss[], ledger: AnkiLedger, except: strin
 	].join("\n");
 }
 
+/** Existing concept cards already made for this course (newest first), so the
+ *  tutor does not recreate them later in a long course. */
+function conceptReminder(ledger: AnkiLedger, chatId: string, exceptId: string): string {
+	const existing = ledger.cards
+		.filter(
+			(card) =>
+				card.chatId === chatId &&
+				card.kind === "concept" &&
+				card.id !== exceptId &&
+				!card.duplicateOf &&
+				(card.status === "queued" || card.status === "sent") &&
+				!!card.card?.front,
+		)
+		.slice(-ANKI_CONCEPT_REMINDER_MAX)
+		.reverse();
+	if (existing.length === 0) return "";
+	return [
+		"",
+		"Central concepts already carded in this course (do not duplicate):",
+		...existing.map((card) => `- "${clip(card.card!.front, REMINDER_CHARS)}"`),
+	].join("\n");
+}
+
 type Decision =
 	| { ok: false; error: string }
 	| { ok: true; card: AnkiCardRecord; linked: AnkiMiss | null };
@@ -240,6 +266,25 @@ export async function createTutorCard(
 			return { ok: true, card, linked: matched };
 		}
 
+		if (input.reason === "concept") {
+			const existing = ledger.cards.find(
+				(card) =>
+					card.chatId === chatId &&
+					card.kind === "concept" &&
+					!card.duplicateOf &&
+					card.card !== undefined &&
+					ankiSameConcept(draft, card.card),
+			);
+			if (existing) {
+				if (existing.status === "removed") {
+					return { ok: false, error: "No card for this concept: the learner removed its card, so it is not made again." };
+				}
+				if (existing.status === "queued" || existing.status === "sent" || existing.status === "failed") {
+					return { ok: false, error: `This concept already has a card: "${clip(existing.card!.front, 160)}".` };
+				}
+			}
+		}
+
 		if (limitReached(ledger)) return { ok: false, error: limitText };
 		// A card the learner asked for, or a mistake the stored record does not
 		// show yet: keyed by this call.
@@ -266,6 +311,7 @@ export async function createTutorCard(
 		write(card);
 		ledger.cards.push(card);
 		if (input.reason === "mistake") reminderText = reminder(misses, ledger, null);
+		else if (input.reason === "concept") reminderText = conceptReminder(ledger, chatId, card.id);
 		return { ok: true, card, linked: null };
 	});
 

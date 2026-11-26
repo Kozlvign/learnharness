@@ -25,7 +25,10 @@ const { courseConsentOf, courseSeedText, newCourseSeedMessage, CREATE_COURSE_TOO
 const { auditChat, renderAuditMarkdown, gapLedger } = await import("../src/core/teaching-audit.ts");
 const { ankiCardDescription } = await import("../src/agent/tools/anki-card.ts");
 const { parseAnkiSettings } = await import("../src/core/anki/settings.ts");
-const { ankiCountsTowardLimit } = await import("../src/server/anki/tutor.ts");
+const { ankiSameConcept } = await import("../src/core/anki/misses.ts");
+const { ankiCountsTowardLimit, createTutorCard } = await import("../src/server/anki/tutor.ts");
+const ankiStore = await import("../src/server/anki/store.ts");
+const { saveLanguageSettings } = await import("../src/agent/language.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 
@@ -371,6 +374,97 @@ describe("concept cards (rule K1)", () => {
 		assert.doesNotMatch(ankiCardDescription({ phase: "practice", triggers, lowConfidenceMax: 30, conceptCards: true }), /reason "concept"/);
 		assert.equal(ankiCountsTowardLimit({ status: "queued", kind: "concept" } as never), false);
 		assert.equal(ankiCountsTowardLimit({ status: "queued", kind: "wrong" } as never), true);
+	});
+
+	it("deduplicates concept cards within a course without colliding distinct concepts", async () => {
+		assert.equal(
+			ankiSameConcept(
+				{ front: "Qual é a **definição** de continuidade em $a$?", back: "$\\lim_{x \\to a} f(x) = f(a)$" },
+				{ front: "Qual a definicao de continuidade em a?", back: "Outra redação" },
+			),
+			true,
+		);
+		assert.equal(
+			ankiSameConcept(
+				{ front: "Definição de limite", back: "Aproximação bilateral." },
+				{ front: "Definição de limite lateral", back: "Aproximação por um lado apenas." },
+			),
+			false,
+		);
+		assert.equal(
+			ankiSameConcept(
+				{ front: "Enuncie o Teorema do Confronto", back: "Se g(x) <= f(x) <= h(x) e g, h tendem a L, então f tende a L." },
+				{ front: "Qual é o critério do sanduíche?", back: "Se $g(x) <= f(x) <= h(x)$ e $g, h$ tendem a $L$, então $f$ tende a $L$." },
+			),
+			true,
+		);
+
+		const chat = chatStore.createChat("Anki concept dedup");
+		ankiStore.saveAnkiSettings(parseAnkiSettings({ enabled: true, conceptCards: true }));
+		const first = await createTutorCard(
+			chat.id,
+			"teach",
+			{
+				reason: "concept",
+				front: "Qual é a definição de continuidade em $a$?",
+				back: "$\\lim_{x \\to a} f(x) = f(a)$.",
+				why: "Exige existência do limite, de f(a) e igualdade.",
+				pitfall: "",
+			},
+			"anki_c1",
+		);
+		assert.equal(first.details.ok, true);
+
+		const dup = await createTutorCard(
+			chat.id,
+			"teach",
+			{
+				reason: "concept",
+				front: "Qual a definicao de continuidade em a?",
+				back: "f(a) coincide com o limite.",
+				why: "",
+				pitfall: "",
+			},
+			"anki_c2",
+		);
+		assert.equal(dup.details.ok, false);
+		assert.match(dup.text, /This concept already has a card/);
+
+		const second = await createTutorCard(
+			chat.id,
+			"teach",
+			{
+				reason: "concept",
+				front: "O que diz o Teorema do Valor Intermediário?",
+				back: "Uma função contínua em [a, b] assume todo valor entre f(a) e f(b).",
+				why: "",
+				pitfall: "",
+			},
+			"anki_c3",
+		);
+		assert.equal(second.details.ok, true);
+		assert.match(second.text, /Central concepts already carded in this course/);
+		assert.match(second.text, /continuidade/);
+
+		// A concept card the learner removed is not recreated.
+		await ankiStore.updateAnkiLedger((ledger) => {
+			const c = ledger.cards.find((card) => card.toolCallId === "anki_c3");
+			if (c) c.status = "removed";
+		});
+		const removedDup = await createTutorCard(
+			chat.id,
+			"teach",
+			{
+				reason: "concept",
+				front: "O que diz o Teorema do Valor Intermediário?",
+				back: "Qualquer valor intermediário é atingido.",
+				why: "",
+				pitfall: "",
+			},
+			"anki_c4",
+		);
+		assert.equal(removedDup.details.ok, false);
+		assert.match(removedDup.text, /learner removed its card/);
 	});
 });
 
@@ -793,10 +887,17 @@ describe("create_course on the server (rule R7)", async () => {
 		const done = { id: "r_cc_ok", role: "toolResult", toolCallId: "cc_ok", toolName: CREATE_COURSE_TOOL, content: [{ type: "text", text: "ok" }], details: created, isError: false, timestamp: T0 + 2001 } as unknown as LhMessage;
 		chatStore.saveMessages(origin.id, [ask, yes, call, done]);
 		await assert.rejects(createProposedCourse(origin.id, input), /already created from the learner's latest yes/);
-		// A second course reuses the same folder.
-		const again = chatStore.createChat("Another origin");
-		chatStore.saveMessages(again.id, [ask, yes]);
-		const second = await createProposedCourse(again.id, { ...input, title: "Topologia" });
-		assert.equal(sourceDirectory.read().organization.folders.filter((f) => f.name === second.folder).length, 1);
+		// A second course reuses the same folder — even after switching UI language.
+		saveLanguageSettings({ ui: "pt-BR", tutor: "app" });
+		try {
+			const again = chatStore.createChat("Another origin");
+			chatStore.saveMessages(again.id, [ask, yes]);
+			const second = await createProposedCourse(again.id, { ...input, title: "Topologia" });
+			assert.equal(second.folder, created.folder, "reuses the existing localized suggested-courses folder");
+			const rootFolders = sourceDirectory.read().organization.folders.filter((f) => f.parentId === null);
+			assert.equal(rootFolders.filter((f) => f.name === "Suggested courses" || f.name === "Cadeiras sugeridas").length, 1);
+		} finally {
+			saveLanguageSettings({ ui: "en", tutor: "app" });
+		}
 	});
 });

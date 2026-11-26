@@ -349,6 +349,13 @@ describe("serializeForSummary + buildCompactionPrompt", () => {
 		assert.deepEqual(order, [...order].sort((a, b) => a - b), "sections appear in the ruled order");
 		assert.ok(prompt.includes("TRANSCRIPT"));
 		assert.ok(prompt.includes("- [done] A (a1)"));
+		assert.match(prompt, /permanent gap slug/i);
+		assert.match(prompt, /notation table/i);
+		assert.match(prompt, /reading preference/i);
+		assert.match(prompt, /detours skipped/i);
+		assert.match(prompt, /central concepts already have Anki cards/i);
+		const practicePrompt = buildCompactionPrompt({ spanText: "TRANSCRIPT", planTreeText: null, kind: "practice" });
+		assert.doesNotMatch(practicePrompt, /detours skipped/i);
 	});
 
 	it("planTreeToText: statuses derive from the transcript; edges render; empty tree → null", () => {

@@ -419,15 +419,21 @@ export function buildCompactionPrompt(input: {
 }): string {
 	const planSection =
 		input.planTreeText ?? "No plan tree exists in this session (nothing was persisted).";
+	const courseUnderstanding = input.kind === "practice"
+		? ""
+		: " Preserve every permanent gap slug verbatim (the `gap` tags, e.g. `cancel-keeps-restriction`) with its status (open, repaired in the same class, or re-checked in a later class), plus any prerequisites the probe left untested that still need checking before later nodes.";
+	const courseArc = input.kind === "practice"
+		? ""
+		: " Preserve the course's notation table (each symbol and its fixed meaning), the learner's books/sources (which is primary vs complementary, verified file paths, and any reading preference such as always going straight on), any detours skipped (never offer again) or saved as optional topics, any courses proposed or created, and which central concepts already have Anki cards.";
 	return `You are compacting the earlier part of a tutoring session — writing the summary your future self will read INSTEAD of that transcript. Everything before the cut is replaced by what you write; everything after stays verbatim. The learner's transcript below labels the learner as [LEARNER], the tutoring agent as [TUTOR], tool traffic as [RESULT …]/[SYSTEM NOTE].
 
 Write the summary with EXACTLY these sections, in this order:
 
 ## The learner's understanding
-The most detailed picture you can give of what this learner knows and how that EVOLVED across the session: what they answered and how well (quiz outcomes, correct reasoning, mistakes), their stated or displayed confidence, misconceptions that surfaced, which were corrected and which still stand. This section carries the most weight — future teaching decisions hang on it.
+The most detailed picture you can give of what this learner knows and how that EVOLVED across the session: what they answered and how well (quiz outcomes, correct reasoning, mistakes), their stated or displayed confidence, misconceptions that surfaced, which were corrected and which still stand.${courseUnderstanding} This section carries the most weight — future teaching decisions hang on it.
 
 ## The teaching arc
-How the session progressed: what was covered and in what order, which explanations landed and which didn't, how the learner responded, where the momentum went. Include probe-phase findings if present.
+How the session progressed: what was covered and in what order, which explanations landed and which didn't, how the learner responded, where the momentum went. Include probe-phase findings if present.${courseArc}
 
 ## The plan dependency tree
 Reproduce the session's current plan tree verbatim from the structure below — do not drop nodes, edges, or statuses.
@@ -437,7 +443,7 @@ ${planSection}
 ## The current moment
 What is happening RIGHT NOW at the cut: any question or problem awaiting the learner's answer, any commitment the agent has made that a later turn must honor, and the immediate next step.
 
-Rules: no praise, no filler, no speculation beyond the transcript. Every claim about the learner must be traceable to what they actually said or answered. Keep every identifier (proposition ids, node ids, file paths) exact.
+Rules: no praise, no filler, no speculation beyond the transcript. Every claim about the learner must be traceable to what they actually said or answered. Keep every identifier (proposition ids, node ids, gap slugs, file paths) exact.
 
 TRANSCRIPT TO SUMMARIZE:
 

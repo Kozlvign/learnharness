@@ -89,8 +89,12 @@ export function derivePlanStatuses(tree: PlanTree, messages: readonly PartsCarri
 			// is a settings switch; the fold recognizes both (owner 2026-09-27).
 			const snapshot = posedPluginQuestionOfPart(part);
 			if (part.pluginQuestion !== undefined ? snapshot?.variant !== "teach" : part.type !== "tool-quiz" && part.type !== "tool-explain") continue;
-			const nodeId = ((snapshot?.input ?? part.input) as { nodeId?: unknown } | undefined)?.nodeId;
+			const rawInput = snapshot?.input ?? part.input;
+			const nodeId = (rawInput as { nodeId?: unknown } | undefined)?.nodeId;
 			if (typeof nodeId !== "string" || !ids.has(nodeId)) continue; // untagged/unknown — moves nothing
+			// Fork (docs/rigor.md, C3/C5): review and cumulative exam questions
+			// test earlier nodes without pulling the live cursor backward.
+			if (runs.length > 0 && isLookbackIntent(rawInput)) continue;
 			if (runs.at(-1) !== nodeId) runs.push(nodeId);
 		}
 	}
@@ -126,9 +130,21 @@ export interface PlanToolResult {
 
 // ─── the native fold (Wave D: derivePlanStatuses over LhMessage[]) ───────────
 
+import { healEncodedArguments } from "../argument-heal.ts";
 import type { LhMessage } from "../native-messages.ts";
 import { posedPluginQuestionOfPart } from "../tool-parts.ts";
 import { readPluginQuestionMessageAnnotation } from "../plugin-questions.ts";
+
+const LOOKBACK_INTENT_SCHEMA = {
+	properties: {
+		intent: { anyOf: [{ const: "review" }, { const: "exam" }] },
+	},
+};
+
+function isLookbackIntent(input: unknown): boolean {
+	const healed = healEncodedArguments(input, LOOKBACK_INTENT_SCHEMA) as { intent?: unknown } | undefined;
+	return healed?.intent === "review" || healed?.intent === "exam";
+}
 
 /** The same derivation over the NATIVE record: quiz CALLS only (any state —
  *  a dangling call still moves position; results feed nothing). */
@@ -146,6 +162,7 @@ export function derivePlanStatusesLh(tree: PlanTree, messages: readonly LhMessag
 			const input = annotation.status === "posed" ? annotation.snapshot.input : block.arguments;
 			const nodeId = (input as { nodeId?: unknown } | undefined)?.nodeId;
 			if (typeof nodeId !== "string" || !ids.has(nodeId)) continue;
+			if (runs.length > 0 && isLookbackIntent(input)) continue;
 			if (runs.at(-1) !== nodeId) runs.push(nodeId);
 		}
 	}

@@ -126,8 +126,8 @@ Practice sessions get no marker.
    - checks each file like the tutor's own reads (allowed folders, sensitive locations) and that it is readable, all or nothing;
    - creates the chat with the strong slot's model;
    - writes a `course-seed` marker as its first message (goal, origin, what the learner holds, books with their files);
-   - files the chat in the root folder *Suggested courses* (in the interface language: *Cadeiras sugeridas*), creating it once.
-5. The new chat shows the note as a collapsible *Proposed course* card. The proposing chat shows *New course created* with an **Open** link.
+   - files the chat in the root folder *Suggested courses* (in the interface language: *Cadeiras sugeridas*), reusing an existing localized folder if the interface language changed.
+5. The new chat shows the note as a *Proposed course* card (expanded before the first turn, with a link back to the origin course and a *Start course* invitation; collapsed once turns begin). The proposing chat shows *New course created* with an **Open** link.
 
 ## The audit report
 

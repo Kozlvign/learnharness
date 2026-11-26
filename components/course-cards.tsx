@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BookOpenIcon, ChevronRightIcon, GraduationCapIcon } from "lucide-react";
+import { ArrowRightIcon, BookOpenIcon, ChevronRightIcon, GraduationCapIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CourseSeedDetails, CreateCourseResult } from "@/src/core";
 
@@ -50,22 +51,39 @@ export function CourseCreatedCard({ part }: { part: { output?: unknown; state?: 
 	);
 }
 
-export function CourseSeedCard({ data }: { data: CourseSeedDetails }) {
-	const [open, setOpen] = useState(false);
+export function CourseSeedCard({ data, defaultOpen = false }: { data: CourseSeedDetails; defaultOpen?: boolean }) {
+	const [open, setOpen] = useState(defaultOpen);
 	const books = Array.isArray(data?.books) ? data.books : [];
 	return (
 		<div data-testid="course-seed-card" className="my-1">
-			<button
-				type="button"
-				data-testid="course-seed-toggle"
-				onClick={() => setOpen((v) => !v)}
-				className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/70 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
-			>
-				<ChevronRightIcon aria-hidden="true" className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-				<span className="font-medium">Proposed course</span>
-				<span>Proposed in</span>
-				<span data-lh-i18n="off" className="min-w-0 flex-1 truncate">{data?.origin?.title ?? ""}</span>
-			</button>
+			<div className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
+				<button
+					type="button"
+					data-testid="course-seed-toggle"
+					aria-expanded={open}
+					onClick={() => setOpen((v) => !v)}
+					className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left transition-colors hover:text-foreground"
+				>
+					<ChevronRightIcon aria-hidden="true" className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+					<span className="shrink-0 font-medium text-foreground/80">Proposed course</span>
+					{data?.origin?.title && (
+						<>
+							<span aria-hidden="true">·</span>
+							<span className="shrink-0">From</span>
+							<span data-lh-i18n="off" className="min-w-0 flex-1 truncate">{data.origin.title}</span>
+						</>
+					)}
+				</button>
+				{data?.origin?.chatId && (
+					<Link
+						href={`/chat/${data.origin.chatId}`}
+						data-testid="course-seed-origin-link"
+						className="shrink-0 font-medium text-primary hover:underline"
+					>
+						Open origin
+					</Link>
+				)}
+			</div>
 			{open && (
 				<div data-testid="course-seed-body" className="mt-1 space-y-2 rounded-lg border border-dashed border-border/70 px-4 py-3 text-xs">
 					<SeedField label="Goal" text={data.goal} />
@@ -96,6 +114,28 @@ export function CourseSeedCard({ data }: { data: CourseSeedDetails }) {
 					)}
 				</div>
 			)}
+		</div>
+	);
+}
+
+/** Invitation shown below the seed card when a newly created course has no
+ *  conversation turns yet. */
+export function CourseSeedEmptyState({ onStart, disabled }: { onStart: () => void; disabled?: boolean }) {
+	return (
+		<div
+			data-testid="course-seed-empty-state"
+			className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"
+		>
+			<div className="max-w-md space-y-1">
+				<h3 className="text-sm font-medium">Ready to start this course</h3>
+				<p className="text-sm text-muted-foreground">
+					The tutor already has the goal, your background, and the book list. Start whenever you are ready, or write below to adjust anything first.
+				</p>
+			</div>
+			<Button type="button" size="sm" data-testid="start-course-button" disabled={disabled} onClick={onStart}>
+				<span>Start course</span>
+				<ArrowRightIcon aria-hidden="true" className="size-3.5" />
+			</Button>
 		</div>
 	);
 }
