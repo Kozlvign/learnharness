@@ -10,6 +10,7 @@
  * the schema, the marker, and the consent fold over a chat record.
  */
 import { Type, type Static } from "typebox";
+import { healEncodedArguments } from "./argument-heal.ts";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 
 export const CREATE_COURSE_TOOL = "create_course";
@@ -113,9 +114,15 @@ export function newCourseSeedMessage(details: CourseSeedDetails, now: number = D
 export type CourseConsent =
 	| { status: "none" }
 	| { status: "pending"; askCallId: string }
-	| { status: "declined"; askCallId: string }
+	| { status: "declined"; askCallId: string; answeredOther?: boolean }
 	| { status: "granted"; askCallId: string }
 	| { status: "used"; askCallId: string };
+
+const COURSE_PURPOSE_HEAL_SCHEMA = {
+	properties: {
+		purpose: { const: "course" },
+	},
+};
 
 /** Fold the record: the LAST `purpose: "course"` ask decides. A successful
  *  create_course after its answer consumes it (one course per yes). */
@@ -127,10 +134,13 @@ export function courseConsentOf(messages: readonly LhMessage[]): CourseConsent {
 		if (m.role !== "assistant") continue;
 		for (let b = m.content.length - 1; b >= 0; b--) {
 			const block = m.content[b]!;
-			if (block.type === "toolCall" && block.name === "ask_user_question" && (block.arguments as { purpose?: unknown } | undefined)?.purpose === "course") {
-				askCallId = block.id;
-				askIndex = i;
-				break;
+			if (block.type === "toolCall" && block.name === "ask_user_question") {
+				const healed = healEncodedArguments(block.arguments, COURSE_PURPOSE_HEAL_SCHEMA) as { purpose?: unknown } | undefined;
+				if (healed?.purpose === "course") {
+					askCallId = block.id;
+					askIndex = i;
+					break;
+				}
 			}
 		}
 	}
@@ -138,8 +148,12 @@ export function courseConsentOf(messages: readonly LhMessage[]): CourseConsent {
 	const resultIndex = messages.findIndex((m, i) => i > askIndex && m.role === "toolResult" && m.toolCallId === askCallId);
 	if (resultIndex < 0) return { status: "pending", askCallId };
 	const result = messages[resultIndex] as Extract<LhMessage, { role: "toolResult" }>;
-	const answers = (result.details as { answers?: Array<{ value?: unknown }>; dismissed?: boolean } | null)?.answers;
-	if ((result.details as { dismissed?: boolean } | null)?.dismissed || answers?.[0]?.value !== "create") return { status: "declined", askCallId };
+	const details = result.details as { answers?: Array<{ value?: unknown }>; dismissed?: boolean; other?: unknown } | null;
+	const answers = details?.answers;
+	if (details?.dismissed || answers?.[0]?.value !== "create") {
+		const answeredOther = !details?.dismissed && typeof details?.other === "string" && details.other.trim().length > 0;
+		return { status: "declined", askCallId, ...(answeredOther ? { answeredOther: true } : {}) };
+	}
 	const used = messages.some((m, i) => i > resultIndex && m.role === "toolResult" && m.toolName === CREATE_COURSE_TOOL && !m.isError);
 	return used ? { status: "used", askCallId } : { status: "granted", askCallId };
 }

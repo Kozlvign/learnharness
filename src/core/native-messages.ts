@@ -336,20 +336,41 @@ export function sessionResumeText(gapMs: number): string {
 }
 
 /** The new-class marker for this input, or null. Teaching chats only, and
- *  only once a class has happened (some tutor reply exists): the first
- *  message of a chat created long ago starts the course, not a new class.
+ *  only once probing has finished and the teacher has replied at least once:
+ *  a pause mid-probe or on a brand-new chat is not a new class of a course.
  *  For an answer, the learner's earlier answers to the same batch are not
  *  the activity the gap is measured from (the batch's question is): pass
- *  `skipTrailingResults`, and call it only for the batch's last answer. */
+ *  `skipTrailingResults`, and call it only for the batch's last answer.
+ *  For plain text, recent silent dismissals (ESC on a stale question right
+ *  before typing) and trailing side markers are skipped so the true away gap
+ *  survives. */
 export function sessionResumeFor(
 	record: { messages: readonly LhMessage[]; kind?: string },
 	now: number,
 	options: { skipTrailingResults?: boolean } = {},
 ): LhMarkerMessage | null {
 	if (record.kind === "practice") return null;
-	if (!record.messages.some((m) => m.role === "assistant")) return null;
+	const doneIds = probeDoneResultIds(record.messages);
+	if (doneIds.size === 0) return null;
+	const handoffIdx = record.messages.findIndex((m) => doneIds.has(m.id));
+	if (!record.messages.slice(handoffIdx + 1).some((m) => m.role === "assistant")) return null;
 	let end = record.messages.length;
-	if (options.skipTrailingResults) while (end > 0 && record.messages[end - 1]!.role === "toolResult") end--;
+	if (options.skipTrailingResults) {
+		while (end > 0 && record.messages[end - 1]!.role === "toolResult") end--;
+	} else {
+		while (end > 0) {
+			const entry = record.messages[end - 1]!;
+			if (isSideQuestionMarker(entry)) {
+				end--;
+				continue;
+			}
+			if (isDismissedResult(entry) && typeof entry.timestamp === "number" && now - entry.timestamp < SESSION_RESUME_GAP_MS) {
+				end--;
+				continue;
+			}
+			break;
+		}
+	}
 	const last = record.messages[end - 1];
 	const lastActivityAt = typeof last?.timestamp === "number" ? last.timestamp : undefined;
 	if (lastActivityAt === undefined) return null;

@@ -55,7 +55,7 @@ import { sideChats, type SideChatService } from "./side-chat.ts";
 import { SIDE_CONTEXT_BUDGET_ERROR, sideBudgetRetryDrops, sideContextWindow } from "./side-context-budget.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
-import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
+import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf, sessionResumeFor } from "../core/native-messages.ts";
 import { samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens, compactionInFlight } from "./compaction.ts";
@@ -528,6 +528,10 @@ export async function handleChatInput(
 				preparation.signal.throwIfAborted();
 				appends = submission.finish({ id: chatId, kind: record.kind, messages: record.messages }, outcome);
 			} else appends = submission.finish({ id: chatId, kind: record.kind, messages: record.messages });
+			if (input.type === "plugin-question-answer" && !hasUnresolvedQuestion([...record.messages, ...appends])) {
+				const resume = sessionResumeFor(record, Date.now(), { skipTrailingResults: true });
+				if (resume) appends = [...appends, resume];
+			}
 		} else appends = input.type === "steers"
 			? input.steers.filter((s) => !steerDelivered(record.messages, s.id))
 			: inputAppends(record, input);

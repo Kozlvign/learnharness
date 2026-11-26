@@ -66,6 +66,22 @@ function user(id: string, at: number, text: string): LhMessage {
 	return { id, role: "user", content: text, timestamp: at } as unknown as LhMessage;
 }
 
+function probeDone(at: number): LhMessage[] {
+	return [
+		assistant("pd_call", at, [{ id: "pd_1", name: "probe_done", args: { summary: "ready" } }]),
+		{
+			id: "r_pd_1",
+			role: "toolResult",
+			toolCallId: "pd_1",
+			toolName: "probe_done",
+			content: [{ type: "text", text: "ok" }],
+			details: { ok: true },
+			isError: false,
+			timestamp: at + 1,
+		} as unknown as LhMessage,
+	];
+}
+
 const quiz = (extra: Record<string, unknown>) => ({
 	type: "check",
 	nodeId: "limits",
@@ -153,33 +169,37 @@ describe("the mixed quizzing mechanic (fork default)", () => {
 });
 
 describe("a new class after hours away (rule C3)", () => {
+	const probed = probeDone(T0 - 5000);
 	const posed = assistant("a1", T0, [{ id: "q1", name: "quiz", args: quiz({ intent: "step", rung: 2 }) }]);
 	it("formats the gap in hours, then days", () => {
 		assert.equal(formatResumeGap(13 * HOUR + 10 * 60_000), "13 h");
 		assert.equal(formatResumeGap(30 * 60_000), "1 h");
 		assert.equal(formatResumeGap(72 * HOUR), "3 d");
 	});
-	it("only for teaching chats, after a class happened, past 3 hours", () => {
-		assert.equal(sessionResumeFor({ messages: [posed] }, T0 + 2 * HOUR), null);
-		assert.equal(sessionResumeFor({ messages: [posed], kind: "practice" }, T0 + 5 * HOUR), null);
+	it("only for teaching chats, after probing and a teacher reply, past 3 hours", () => {
+		const duringProbe = assistant("p0", T0, [{ id: "pr1", name: "probe", args: quiz({}) }]);
+		assert.equal(sessionResumeFor({ messages: [duringProbe] }, T0 + 5 * HOUR), null, "never during probe phase");
+		assert.equal(sessionResumeFor({ messages: probed }, T0 + 5 * HOUR), null, "no teacher reply after probe_done yet");
+		assert.equal(sessionResumeFor({ messages: [...probed, posed] }, T0 + 2 * HOUR), null);
+		assert.equal(sessionResumeFor({ messages: [...probed, posed], kind: "practice" }, T0 + 5 * HOUR), null);
 		assert.equal(sessionResumeFor({ messages: [user("u", T0, "hi")] }, T0 + 5 * HOUR), null, "no tutor reply yet");
-		const marker = sessionResumeFor({ messages: [posed] }, T0 + SESSION_RESUME_GAP_MS + 1);
+		const marker = sessionResumeFor({ messages: [...probed, posed] }, T0 + SESSION_RESUME_GAP_MS + 1);
 		assert.ok(marker);
 		assert.equal(marker!.customType, "session-resume");
 		assert.match(marker!.content, /^\[Session context\] New class: the learner is back after 3 h away/);
 	});
 	it("an answer after the gap: result first, then the marker; the tail still owes the reply", () => {
-		const record = { messages: [posed] };
+		const record = { messages: [...probed, posed] };
 		const original = Date.now;
 		try {
 			Date.now = () => T0 + 13 * HOUR;
 			const appended = inputAppends(record, { type: "answer", toolCallId: "q1", answer: { kind: "quiz", questionText: "q", dontKnow: false, answers: [{ label: "2", value: "a", index: 1 }], answeredAt: new Date(T0 + 13 * HOUR).toISOString(), correct: true } } as never);
 			assert.deepEqual(appended.map((m) => m.role === "custom" ? m.customType : m.role), ["toolResult", "session-resume"]);
-			const after = [posed, ...appended];
-			assert.equal(needsContinuation(after), needsContinuation([posed, appended[0]!]), "the marker is tail-transparent");
+			const after = [...probed, posed, ...appended];
+			assert.equal(needsContinuation(after), needsContinuation([...probed, posed, appended[0]!]), "the marker is tail-transparent");
 			assert.equal(endsInDismissal(after), false);
 			const wire = toLlmMessages(after as never);
-			assert.deepEqual(wire.map((m) => m.role), ["assistant", "toolResult", "user"], "the result stays right after its call");
+			assert.deepEqual(wire.slice(-3).map((m) => m.role), ["assistant", "toolResult", "user"], "the result stays right after its call");
 			const view = projectView(after);
 			assert.ok(view.some((m) => m.parts.some((p) => p.type === "data-session-resume")));
 		} finally {
@@ -191,8 +211,22 @@ describe("a new class after hours away (rule C3)", () => {
 		const original = Date.now;
 		try {
 			Date.now = () => T0 + 20 * HOUR;
-			const appended = inputAppends({ messages: [done] }, { type: "text", text: "Back!" } as never);
+			const appended = inputAppends({ messages: [...probed, done] }, { type: "text", text: "Back!" } as never);
 			assert.deepEqual(appended.map((m) => m.role === "custom" ? m.customType : m.role), ["session-resume", "user"]);
+		} finally {
+			Date.now = original;
+		}
+	});
+	it("dismissing a stale pending question right before typing preserves the away gap", () => {
+		const dismissed = answer("q1", "quiz", T0 + 10 * HOUR, { dismissed: true });
+		const original = Date.now;
+		try {
+			Date.now = () => T0 + 10 * HOUR + 5_000;
+			const appended = inputAppends({ messages: [...probed, posed, dismissed] }, { type: "text", text: "Voltei!" } as never);
+			const resume = appended.find((m) => m.role === "custom" && m.customType === "session-resume") as Extract<LhMessage, { role: "custom" }> | undefined;
+			assert.ok(resume, "expected session-resume after dismissing a stale question");
+			assert.equal(((resume!.details as { gapMs?: number }).gapMs ?? 0) >= 10 * HOUR, true);
+			assert.equal(appended.at(-1)?.role, "user");
 		} finally {
 			Date.now = original;
 		}
@@ -206,11 +240,78 @@ describe("a new class after hours away (rule C3)", () => {
 		try {
 			const ans = (id: string, at: number) => ({ type: "answer", toolCallId: id, answer: { kind: "quiz", questionText: "q", dontKnow: false, answers: [{ label: "2", value: "a", index: 1 }], answeredAt: new Date(at).toISOString(), correct: true } }) as never;
 			Date.now = () => T0 + 10 * HOUR;
-			const first = inputAppends({ messages: [two] }, ans("s1", T0 + 10 * HOUR));
+			const first = inputAppends({ messages: [...probed, two] }, ans("s1", T0 + 10 * HOUR));
 			assert.deepEqual(first.map((m) => m.role), ["toolResult"]);
 			Date.now = () => T0 + 10 * HOUR + 60_000;
-			const second = inputAppends({ messages: [two, ...first] }, ans("s2", T0 + 10 * HOUR + 60_000));
+			const second = inputAppends({ messages: [...probed, two, ...first] }, ans("s2", T0 + 10 * HOUR + 60_000));
 			assert.deepEqual(second.map((m) => m.role === "custom" ? m.customType : m.role), ["toolResult", "session-resume"]);
+		} finally {
+			Date.now = original;
+		}
+	});
+	it("mixed builtin+plugin sibling batch: plugin answers first, then the final builtin answer emits one marker measured from the question", () => {
+		const occurrence = { messageId: "a4", contentIndex: 1, toolCallId: "p1", toolName: "plugin_code" };
+		const mixed = {
+			...assistant("a4", T0, [
+				{ id: "b1", name: "quiz", args: quiz({ intent: "step", rung: 2 }) },
+				{ id: "p1", name: "plugin_code", args: { type: "check", nodeId: "limits", question: "Write code", payload: {} } },
+			]),
+			lhQuestions: {
+				"1": {
+					protocolVersion: 1,
+					pluginId: "fixture",
+					typeId: "code",
+					label: "Code",
+					variant: "teach",
+					questionId: "pq1",
+					occurrence,
+					contractVersion: 1,
+					input: { type: "check", nodeId: "limits", question: "Write code", payload: {} },
+					questionSchema: { type: "object", properties: {} },
+					answerSchema: { type: "string" },
+					showThinking: false,
+					requiresAnswerRefinement: false,
+				},
+			},
+		} as unknown as LhMessage;
+		const pluginAnswered = {
+			id: "r_p1",
+			role: "toolResult",
+			toolCallId: "p1",
+			toolName: "plugin_code",
+			content: [{ type: "text", text: "ok" }],
+			lhQuestionOccurrence: occurrence,
+			details: {
+				kind: "plugin-question",
+				pluginId: "fixture",
+				typeId: "code",
+				questionId: "pq1",
+				contractVersion: 1,
+				answer: "print(1)",
+				answeredAt: new Date(T0 + 10 * HOUR).toISOString(),
+			},
+			isError: false,
+			timestamp: T0 + 10 * HOUR,
+		} as unknown as LhMessage;
+		const original = Date.now;
+		try {
+			Date.now = () => T0 + 10 * HOUR;
+			assert.throws(
+				() => inputAppends({ messages: [...probed, mixed] }, {
+					type: "answer",
+					toolCallId: "b1",
+					answer: { kind: "quiz", questionText: "q", dontKnow: false, answers: [{ label: "2", value: "a", index: 1 }], answeredAt: new Date(T0 + 10 * HOUR).toISOString(), correct: true },
+				} as never),
+				/pending plugin question first/,
+			);
+			Date.now = () => T0 + 10 * HOUR + 60_000;
+			const finalAppended = inputAppends({ messages: [...probed, mixed, pluginAnswered] }, {
+				type: "answer",
+				toolCallId: "b1",
+				answer: { kind: "quiz", questionText: "q", dontKnow: false, answers: [{ label: "2", value: "a", index: 1 }], answeredAt: new Date(T0 + 10 * HOUR + 60_000).toISOString(), correct: true },
+			} as never);
+			assert.deepEqual(finalAppended.map((m) => m.role === "custom" ? m.customType : m.role), ["toolResult", "session-resume"]);
+			assert.equal(((finalAppended[1] as Extract<LhMessage, { role: "custom" }>).details as { gapMs?: number }).gapMs, 10 * HOUR + 60_000);
 		} finally {
 			Date.now = original;
 		}
@@ -225,6 +326,11 @@ describe("proposed courses (rule R7)", () => {
 		assert.equal(courseConsentOf([ask]).status, "pending");
 		const no = answer("ask_p1", "ask_user_question", T0 + 1000, { answers: [{ label: "Agora não", value: "skip", index: 2 }] });
 		assert.equal(courseConsentOf([ask, no]).status, "declined");
+		const other = answer("ask_p1", "ask_user_question", T0 + 1000, { answers: [], other: "Pode criar, mas só depois do capítulo 3" });
+		assert.deepEqual(courseConsentOf([ask, other]), { status: "declined", askCallId: "ask_p1", answeredOther: true });
+		const encodedAsk = assistant("pe", T0, [{ id: "ask_pe", name: "ask_user_question", args: { question: "New course?", purpose: '"course"', options: [{ label: "Criar", value: "create" }, { label: "Agora não", value: "skip" }] } }]);
+		const encodedYes = answer("ask_pe", "ask_user_question", T0 + 1000, { answers: [{ label: "Criar", value: "create", index: 1 }] });
+		assert.equal(courseConsentOf([encodedAsk, encodedYes]).status, "granted");
 		const yes = answer("ask_p1", "ask_user_question", T0 + 1000, { answers: [{ label: "Criar", value: "create", index: 1 }] });
 		assert.equal(courseConsentOf([ask, yes]).status, "granted");
 		const created = assistant("c1", T0 + 2000, [{ id: "cc1", name: CREATE_COURSE_TOOL, args: { title: "Real analysis" } }]);
@@ -272,6 +378,8 @@ describe("the teaching audit", () => {
 	const handoff = { id: "h", role: "custom", customType: "probe-handoff", content: "plan", display: true, details: {}, timestamp: T0 } as unknown as LhMessage;
 	const plan = assistant("plan", T0 + 1000, [{ id: "pl", name: "plan_init", args: { mermaid: 'graph TD\nlimits["Limits"]\nlaws["Laws"]\nlimits --> laws' } }]);
 	const planResult = { id: "r_pl", role: "toolResult", toolCallId: "pl", toolName: "plan_init", content: [{ type: "text", text: "{}" }], details: { ok: true }, isError: false, timestamp: T0 + 1001 } as unknown as LhMessage;
+	const planPresented = assistant("plan_pres", T0 + 1500, [], "Aqui está o plano do curso. Podemos começar?", "stop");
+	const planAccepted = user("u_acc", T0 + 1800, "Pode começar.");
 	const stall = assistant("stall", T0 + 2000, [], "We'll start with limits next.", "stop");
 	const q1 = assistant("q1m", T0 + 3000, [{ id: "q1", name: "quiz", args: quiz({ intent: "step", rung: 2 }) }]);
 	const a1 = answer("q1", "quiz", T0 + 4000, { correct: true, confidence: 100 });
@@ -283,20 +391,20 @@ describe("the teaching audit", () => {
 	const q4 = assistant("q4m", T0 + 9000, [{ id: "q4", name: "quiz", args: quiz({ nodeId: "laws", intent: "step", rung: 3 }) }]);
 	const a4 = answer("q4", "quiz", T0 + 13 * HOUR, { correct: true, confidence: 100 });
 	const q5 = assistant("q5m", T0 + 13 * HOUR + 1000, [{ id: "q5", name: "quiz", args: quiz({ nodeId: "laws", intent: "step", rung: 3 }) }]);
-	const messages = [handoff, plan, planResult, stall, q1, a1, q2, a2, q3, a3, q4, a4, q5];
+	const messages = [handoff, plan, planResult, planPresented, planAccepted, stall, q1, a1, q2, a2, q3, a3, q4, a4, q5];
 	const record = { id: "chat_audit", title: "Audit fixture", messages };
 
-	it("finds the classes, the stall, the missed climb, the node left without a challenge and the unverified gap", () => {
+	it("finds the classes, the stall (ignoring plan presentation), the missed climb, the node left without a challenge and the unverified gap", () => {
 		const report = auditChat(record);
 		assert.equal(report.classes.length, 2);
 		assert.equal(report.classes[1]!.gapBeforeMs! >= 3 * HOUR, true);
 		const rules = report.flags.map((f) => f.rule);
-		assert.ok(rules.includes("C7"), "the stalled turn");
+		assert.equal(report.flags.filter((f) => f.rule === "C7").length, 1, "plan presentation is not flagged; only the post-acceptance stall is");
 		assert.ok(rules.includes("E3"), "a confident rung-2 success followed by rung 2");
 		assert.ok(rules.includes("E7"), "limits left without a challenge");
 		assert.ok(rules.includes("L4"), "the repaired gap never re-checked later");
 		assert.equal(report.tagCoverage, 1);
-		assert.deepEqual(gapLedger(report.questions).map((g) => [g.slug, g.repairs, g.verifiedLater]), [["slope-is-a-ratio", 1, false]]);
+		assert.deepEqual(gapLedger(report.questions).map((g) => [g.slug, g.repairs, g.verifiedLater, g.freeChecksLater]), [["slope-is-a-ratio", 1, false, 0]]);
 	});
 
 	it("renders the report and the transcript in Portuguese", () => {
@@ -309,30 +417,259 @@ describe("the teaching audit", () => {
 		assert.match(md, /intent=repair rung=1 gap=slope-is-a-ratio/);
 	});
 
-	it("a delayed free answer or dismissed answer is not evidence of a repaired gap", () => {
+	it("a delayed free answer or dismissed answer is not evidence of a repaired gap, and free checks are distinguished in the table", () => {
 		const review = assistant("review", T0 + 14 * HOUR, [{ id: "review-gap", name: "explain", args: {
 			type: "check", nodeId: "limits", intent: "review", rung: 3, gap: "slope-is-a-ratio", question: "Why?", correctAnswer: "A ratio.",
 		} }]);
 		const response = answer("review-gap", "explain", T0 + 14 * HOUR + 1000, { text: "Not necessarily correct." });
-		const reviewed = auditChat({ ...record, messages: [...messages, review, response] });
+		const extended = { ...record, messages: [...messages, review, response] };
+		const reviewed = auditChat(extended);
 		assert.equal(gapLedger(reviewed.questions)[0]!.verifiedLater, false);
+		assert.equal(gapLedger(reviewed.questions)[0]!.freeChecksLater, 1);
+		const md = renderAuditMarkdown(reviewed, extended);
+		assert.match(md, /slope-is-a-ratio \| 1 \| 0 \| 1 \| 2 \| resposta livre \(conferir\)/);
 		const last = reviewed.questions.at(-1)!;
 		assert.equal(gapLedger([...reviewed.questions, { ...last, correct: true, dismissed: true }])[0]!.verifiedLater, false);
 		assert.equal(gapLedger([...reviewed.questions, { ...last, correct: true }])[0]!.verifiedLater, true);
 	});
 
+	it("L4 does not prematurely flag a gap repaired in the latest class", () => {
+		const singleClass = { id: "single", title: "Single class", messages: [handoff, plan, planResult, q2, a2, q3, a3] };
+		const report = auditChat(singleClass);
+		assert.equal(report.flags.some((f) => f.rule === "L4"), false);
+		assert.match(renderAuditMarkdown(report, singleClass), /slope-is-a-ratio \| 1 \| 0 \| 1 \| 1 \| aguardando aula posterior/);
+	});
+
 	it("sibling answers and their resume marker open only one new class", () => {
+		const probed = probeDone(T0 - 5000);
 		const posed = assistant("siblings", T0, [
 			{ id: "s1", name: "quiz", args: quiz({ intent: "step", rung: 2 }) },
 			{ id: "s2", name: "quiz", args: quiz({ intent: "step", rung: 2 }) },
 		]);
 		const first = answer("s1", "quiz", T0 + 13 * HOUR, { correct: true });
 		const second = answer("s2", "quiz", T0 + 13 * HOUR + 1000, { correct: true });
-		const marker = sessionResumeFor({ messages: [posed, first] }, second.timestamp, { skipTrailingResults: true })!;
+		const marker = sessionResumeFor({ messages: [...probed, posed, first] }, second.timestamp, { skipTrailingResults: true })!;
 		const report = auditChat({ ...record, messages: [posed, first, second, marker] });
 		assert.equal(report.classes.length, 2);
 		assert.equal(report.classes[1]!.marked, true);
 		assert.equal(report.classes[1]!.gapBeforeMs, 13 * HOUR);
+	});
+
+	it("supports Claude send_to_user in transcripts and C7 previews, and ignores Claude pre-teaching plan presentation", () => {
+		const longProse = "Explicação detalhada do teorema fundamental. ".repeat(15) + "Conclusão final.";
+		const sendResult = (id: string, at: number, isError = false) => ({
+			id: `r_${id}`,
+			role: "toolResult",
+			toolCallId: id,
+			toolName: "send_to_user",
+			content: [{ type: "text", text: isError ? "failed" : "sent" }],
+			details: {},
+			isError,
+			timestamp: at,
+		} as unknown as LhMessage);
+		const claudePlanSend = assistant("cp_send", T0 + 1200, [{ id: "su_plan", name: "send_to_user", args: { message: "Apresentando o plano." } }]);
+		const claudePlanClose = assistant("cp_close", T0 + 1300, [], "", "stop");
+		const claudeStallSend = assistant("cs_send", T0 + 4500, [
+			{ id: "su_bad", name: "send_to_user", args: { message: "Erro descartado." } },
+			{ id: "su_ok", name: "send_to_user", args: { message: longProse } },
+		]);
+		const claudeStallClose = assistant("cs_close", T0 + 4600, [], "", "stop");
+		const claudeRecord = {
+			id: "claude_audit",
+			title: "Claude chat",
+			messages: [
+				handoff,
+				plan,
+				planResult,
+				claudePlanSend,
+				sendResult("su_plan", T0 + 1250),
+				claudePlanClose,
+				planAccepted,
+				q1,
+				a1,
+				claudeStallSend,
+				sendResult("su_bad", T0 + 4510, true),
+				sendResult("su_ok", T0 + 4520, false),
+				claudeStallClose,
+			],
+		};
+		const report = auditChat(claudeRecord);
+		const c7 = report.flags.filter((f) => f.rule === "C7");
+		assert.equal(c7.length, 1, "Claude plan_init + send_to_user presentation is not flagged; post-teach stall is");
+		assert.match(c7[0]!.message, /Explicação detalhada do teorema fundamental\./);
+		assert.doesNotMatch(c7[0]!.message, /Erro descartado/);
+		const md = renderAuditMarkdown(report, claudeRecord, { transcript: true });
+		assert.ok(md.includes(longProse), "full send_to_user prose appears without 300-char JSON clipping");
+		assert.doesNotMatch(md, /\*\(send_to_user:/);
+		assert.match(md, /\*\(send_to_user recusado\)\*/);
+		assert.match(md, /\*\(turno encerrado sem texto adicional\)\*/);
+	});
+
+	it("never crashes renderTranscript on rejected duplicate-option quiz calls", () => {
+		const badCall = assistant("bad_q", T0 + 1000, [{
+			id: "bq1",
+			name: "quiz",
+			args: {
+				type: "check",
+				nodeId: "limits",
+				intent: "step",
+				rung: 2,
+				question: "Dupes?",
+				options: [{ label: "2", value: "dup" }, { label: "3", value: "dup" }],
+				correctAnswer: "dup",
+			},
+		}]);
+		const badResult = {
+			id: "r_bq1",
+			role: "toolResult",
+			toolCallId: "bq1",
+			toolName: "quiz",
+			content: [{ type: "text", text: "Two options resolve to the same value" }],
+			details: {},
+			isError: true,
+			timestamp: T0 + 1001,
+		} as unknown as LhMessage;
+		const badRecord = { id: "bad_opt", title: "Bad options", messages: [handoff, badCall, badResult] };
+		const md = renderAuditMarkdown(auditChat(badRecord), badRecord, { transcript: true });
+		assert.match(md, /Chamada recusada; a pergunta não foi apresentada ao aluno\./);
+		assert.match(md, /- 2\n- 3/);
+	});
+
+	it("heals raw JSON-encoded question args and defaults legacy untyped teach questions to check", () => {
+		const healedCall = assistant("heal_q", T0 + 1000, [{
+			id: "hq1",
+			name: "quiz",
+			args: {
+				type: '"check"',
+				nodeId: "limits",
+				intent: '"climb"',
+				rung: "3",
+				question: "Even?",
+				options: '[{"label":"2","value":"a"},{"label":"3","value":"b"}]',
+				correctAnswer: "a",
+			},
+		}]);
+		const legacyCall = assistant("leg_q", T0 + 2000, [{
+			id: "lq1",
+			name: "quiz",
+			args: {
+				nodeId: "limits",
+				question: "Legacy?",
+				options: [{ label: "Yes", value: "y" }, { label: "No", value: "n" }],
+				correctAnswer: "y",
+			},
+		}]);
+		const rec = {
+			id: "heal_rec",
+			title: "Heal",
+			messages: [
+				handoff,
+				healedCall,
+				answer("hq1", "quiz", T0 + 1500, { correct: true, confidence: 90 }),
+				legacyCall,
+				answer("lq1", "quiz", T0 + 2500, { correct: true, confidence: 90 }),
+			],
+		};
+		const report = auditChat(rec);
+		assert.equal(report.questions[0]!.type, "check");
+		assert.equal(report.questions[0]!.intent, "climb");
+		assert.equal(report.questions[0]!.rung, 3);
+		assert.equal(report.questions[1]!.type, "check");
+		const md = renderAuditMarkdown(report, rec, { transcript: true });
+		assert.match(md, /type=check nodeId=limits intent=climb rung=3/);
+		assert.match(md, /\*\*\(certa\)\*\* 2/);
+	});
+
+	it("reads canonical plan_init tree details first and ignores Mermaid comments in fallback", () => {
+		const canonicalPlan = assistant("p_can", T0 + 1000, [{ id: "pc", name: "plan_init", args: { mermaid: "graph TD\nfoo --> bar" } }]);
+		const canonicalRes = {
+			id: "r_pc",
+			role: "toolResult",
+			toolCallId: "pc",
+			toolName: "plan_init",
+			content: [{ type: "text", text: "{}" }],
+			details: { ok: true, tree: { nodes: [{ id: "limits", title: "Limites (intuição)" }, { id: "eps", title: "Opcional: Épsilon-delta" }], edges: [], version: 1 } },
+			isError: false,
+			timestamp: T0 + 1001,
+		} as unknown as LhMessage;
+		const r1 = auditChat({ id: "can", title: "Canonical", messages: [handoff, canonicalPlan, canonicalRes] });
+		assert.deepEqual(r1.nodeTitles, { limits: "Limites (intuição)", eps: "Opcional: Épsilon-delta" });
+
+		const fallbackPlan = assistant("p_fb", T0 + 1000, [{
+			id: "pf",
+			name: "plan_init",
+			args: { mermaid: '%% comment-with-dash\ngraph TD\nintro(Introdução)\nopt["Opcional: Provas (extra)"]\nintro --> opt' },
+		}]);
+		const fallbackRes = {
+			id: "r_pf",
+			role: "toolResult",
+			toolCallId: "pf",
+			toolName: "plan_init",
+			content: [{ type: "text", text: "{}" }],
+			details: { ok: true },
+			isError: false,
+			timestamp: T0 + 1001,
+		} as unknown as LhMessage;
+		const r2 = auditChat({ id: "fb", title: "Fallback", messages: [handoff, fallbackPlan, fallbackRes] });
+		assert.deepEqual(r2.nodeTitles, { intro: "Introdução", opt: "Opcional: Provas (extra)" });
+	});
+
+	it("E3 ignores predictions, same-message siblings, cross-class checks, and exercise/exam follow-ups", () => {
+		const batch = assistant("b1", T0 + 1000, [
+			{ id: "b1a", name: "quiz", args: quiz({ intent: "step", rung: 2 }) },
+			{ id: "b1b", name: "quiz", args: quiz({ intent: "step", rung: 2 }) },
+		]);
+		const pred = assistant("pr", T0 + 2000, [{ id: "pr1", name: "quiz", args: quiz({ type: "predict", intent: "step", rung: 1 }) }]);
+		const ex = assistant("ex", T0 + 3000, [{ id: "ex1", name: "quiz", args: quiz({ intent: "exercise", rung: 2 }) }]);
+		const exam = assistant("xm", T0 + 4000, [{ id: "xm1", name: "quiz", args: quiz({ intent: "exam", rung: 2 }) }]);
+		const nextClassUser = user("u_next", T0 + 10 * HOUR, "Voltei");
+		const nextClassCheck = assistant("nc", T0 + 10 * HOUR + 1000, [{ id: "nc1", name: "quiz", args: quiz({ intent: "step", rung: 2 }) }]);
+		const report = auditChat({
+			id: "e3_clean",
+			title: "E3 precision",
+			messages: [
+				handoff,
+				batch,
+				answer("b1a", "quiz", T0 + 1100, { correct: true, confidence: 100 }),
+				answer("b1b", "quiz", T0 + 1200, { correct: true, confidence: 100 }),
+				pred,
+				answer("pr1", "quiz", T0 + 2100, { correct: true, confidence: 100 }),
+				ex,
+				answer("ex1", "quiz", T0 + 3100, { correct: true, confidence: 100 }),
+				exam,
+				answer("xm1", "quiz", T0 + 4100, { correct: true, confidence: 100 }),
+				nextClassUser,
+				nextClassCheck,
+				answer("nc1", "quiz", T0 + 10 * HOUR + 2000, { correct: true, confidence: 100 }),
+			],
+		});
+		assert.equal(report.flags.some((f) => f.rule === "E3"), false);
+	});
+
+	it("E8 ignores same-message parallel siblings and next-class C3 review openings", () => {
+		const batch = assistant("e8b", T0 + 1000, [
+			{ id: "e8a", name: "quiz", args: quiz({ intent: "step", rung: 2 }) },
+			{ id: "e8s", name: "quiz", args: quiz({ intent: "step", rung: 2 }) },
+		]);
+		const rep = assistant("e8r", T0 + 2000, [{ id: "e8r1", name: "quiz", args: quiz({ intent: "repair", rung: 1, gap: "parity" }) }]);
+		const nextClassUser = user("u_e8", T0 + 10 * HOUR, "Voltei");
+		const rev = assistant("e8rev", T0 + 10 * HOUR + 1000, [{ id: "e8rev1", name: "quiz", args: quiz({ intent: "review", rung: 2, gap: "parity" }) }]);
+		const report = auditChat({
+			id: "e8_clean",
+			title: "E8 precision",
+			messages: [
+				handoff,
+				batch,
+				answer("e8a", "quiz", T0 + 1100, { correct: false, confidence: 80 }),
+				answer("e8s", "quiz", T0 + 1200, { correct: true, confidence: 100 }),
+				rep,
+				answer("e8r1", "quiz", T0 + 2100, { correct: false, confidence: 50 }),
+				nextClassUser,
+				rev,
+				answer("e8rev1", "quiz", T0 + 10 * HOUR + 2000, { correct: true, confidence: 90 }),
+			],
+		});
+		assert.equal(report.flags.some((f) => f.rule === "E8"), false);
 	});
 
 	it("rejected tool calls do not count as questions or attempted repairs", () => {
@@ -398,15 +735,40 @@ describe("create_course on the server (rule R7)", async () => {
 		],
 	};
 
-	it("refuses without the learner's create, and with an unreadable file", async () => {
+	it("refuses without the learner's create, explains Other refusals, and does not consume consent on unreadable files", async () => {
 		const origin = chatStore.createChat("Origin: refusals");
 		chatStore.saveMessages(origin.id, [ask]);
 		await assert.rejects(createProposedCourse(origin.id, input), /not answered the course proposal yet/);
+		const other = answer("ask_pa", "ask_user_question", T0 + 1000, { answers: [], other: "Só se tiver Spivak" });
+		chatStore.saveMessages(origin.id, [ask, other]);
+		await assert.rejects(createProposedCourse(origin.id, input), /answered via "Other" instead of choosing create/);
 		chatStore.saveMessages(origin.id, [ask, yes]);
 		await assert.rejects(
 			createProposedCourse(origin.id, { ...input, books: [{ ...input.books[0]!, path: path.join(scratch, "missing.pdf") }] }),
 			/cannot be read, so no course was created/,
 		);
+		// A failed path check leaves the learner's consent intact for a corrected retry.
+		const retried = await createProposedCourse(origin.id, input);
+		assert.equal(retried.ok, true);
+	});
+
+	it("unwraps backtick- and quote-wrapped book paths and prevents intra-turn duplicate courses", async () => {
+		const origin = chatStore.createChat("Origin: quotes and intra-turn");
+		chatStore.saveMessages(origin.id, [ask, yes]);
+		const backtickPath = `\`${pdf}\``;
+		const doubleQuotedPath = `"${pdf}"`;
+		const created = await createProposedCourse(origin.id, {
+			...input,
+			books: [
+				{ ...input.books[0]!, path: backtickPath },
+				{ ...input.books[1]!, title: "Quoted copy", path: doubleQuotedPath },
+			],
+		});
+		assert.equal(created.ok, true);
+		assert.deepEqual(created.withFiles, ["Calculus", "Quoted copy"]);
+		// Even before the first toolResult is persisted back to chatStore (same turn),
+		// a second call against the same yes must be refused.
+		await assert.rejects(createProposedCourse(origin.id, input), /already created from the learner's latest yes/);
 	});
 
 	it("creates the course in the suggested-courses folder with its seed note, once per yes", async () => {

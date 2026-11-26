@@ -107,9 +107,9 @@ The schema declares them optional so that test agents and old records stay valid
 
 ### A new class
 
-When the learner answers or writes in a teaching chat 3 hours or more after the last activity, and the tutor has replied at least once before, `inputAppends` adds a `session-resume` marker (`sessionResumeFor` in `src/core/native-messages.ts`):
+When the learner answers (a builtin or plugin question) or writes in a teaching chat 3 hours or more after the last activity, and probing has finished with at least one teacher reply after `probe_done`, `inputAppends` / `chat-handler` adds a `session-resume` marker (`sessionResumeFor` in `src/core/native-messages.ts`):
 
-- after a text message's dismissal conclusion and before the message; after an answer's result, and only for the last answer of a batch of sibling questions (results stay next to their calls);
+- after a text message's dismissal conclusion and before the message (skipping recent silent dismissals so dismissing a stale question before typing preserves the away gap); after an answer's result, and only for the last answer of a batch of sibling questions (results stay next to their calls);
 - the model reads `[Session context] New class: the learner is back after 13 h away …`;
 - the chat shows a quiet centered line, *New class · 13 h since the last activity*;
 - the marker never changes what the record's tail means (`isSessionResumeMarker`, used by the continuation and dismissal checks).
@@ -152,7 +152,7 @@ A chat id is looked up in `<data>/chats/<id>.json`, where `<data>` is `--data`, 
 | Mudanças do plano | C2 | each `plan_init`, nodes added and removed |
 | Transcrição | — | the tutor's prose, each question with its tags, options and committed answer, and the learner's answers and reasoning |
 
-Flags raised automatically: C3 (a class that did not open with review), C7 (a teaching turn that ended without a question; the closing balance after "I'm stopping" is a legitimate exception), E3 (no climb after a confident success), E7 (a node left without a challenge), E8 (a missed check not followed by repair), L4 (a repaired gap never re-checked in a later class).
+Flags raised automatically: C3 (a class that did not open with review), C7 (a teaching turn that ended without a question; pre-teaching plan presentation/revision is excluded, and a closing balance after "I'm stopping" is a legitimate exception), E3 (no climb after a confident success within the same class), E7 (a node left without a challenge), E8 (a missed check not followed by repair), L4 (a repaired gap never re-checked in a later class once a later class exists).
 
 Flags are review leads, not verdicts on teaching quality. C7 needs transcript review to distinguish a stall from an authorized closing balance. E3 compares recorded rungs (except at the ceiling of 6); it cannot determine whether two problems use the same template. The tutor supplies the tags, so their semantic accuracy also needs review. Free-response grading lives in the tutor's prose: an answer alone never counts as a successful delayed gap verification. The transcript preserves the questions' details, committed answers and explanations for that review. Rejected question calls are shown in the transcript but excluded from question metrics.
 

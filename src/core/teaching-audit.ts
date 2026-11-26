@@ -10,8 +10,17 @@
  * still get every indicator that does not need them; classes are inferred
  * from 3-hour gaps when no marker exists.
  */
-import { formatResumeGap, SESSION_RESUME_GAP_MS, type LhMessage } from "./native-messages.ts";
-import { normalizeOptions, normalizeQuizType, resolveCorrect } from "./question-core.ts";
+import { healEncodedArguments } from "./argument-heal.ts";
+import {
+	failedOutputCallIds,
+	formatResumeGap,
+	SEND_TO_USER_TOOL,
+	sendToUserText,
+	SESSION_RESUME_GAP_MS,
+	userFacingTextOf,
+	type LhMessage,
+} from "./native-messages.ts";
+import { ASK_PURPOSES, normalizeOptions, normalizeQuizType, resolveCorrect, TEACH_INTENTS } from "./question-core.ts";
 import { CREATE_COURSE_TOOL } from "./course.ts";
 
 type Assistant = Extract<LhMessage, { role: "assistant" }>;
@@ -104,6 +113,23 @@ export interface AuditReport {
 const QUESTION_TOOL_NAMES = new Set(["quiz", "explain", "probe", "recall", "ask_user_question"]);
 const CONFIDENT = 70;
 
+const AUDIT_QUESTION_HEAL_SCHEMA = {
+	properties: {
+		type: { anyOf: [{ const: "predict" }, { const: "check" }] },
+		intent: { anyOf: TEACH_INTENTS.map((intent) => ({ const: intent })) },
+		rung: { type: "integer" },
+		purpose: { anyOf: ASK_PURPOSES.map((purpose) => ({ const: purpose })) },
+		options: { type: "array" },
+		multiSelect: { type: "boolean" },
+		correctAnswer: { type: "array" },
+	},
+};
+
+function healedQuestionArgs(raw: unknown): Record<string, unknown> {
+	const healed = healEncodedArguments(raw ?? {}, AUDIT_QUESTION_HEAL_SCHEMA);
+	return typeof healed === "object" && healed !== null && !Array.isArray(healed) ? (healed as Record<string, unknown>) : {};
+}
+
 function str(v: unknown): string | undefined {
 	return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
@@ -118,24 +144,54 @@ function isLearnerInput(m: LhMessage): boolean {
 	return m.role === "custom" && (m.customType === "session-resume" || m.customType === "practice-thinking");
 }
 
-/** Plan node ids and titles from a plan_init mermaid block. */
-function planNodes(mermaid: string): Map<string, string> {
+/** Plan node ids and titles from a plan_init mermaid block (fallback when the
+ *  result carries no parsed tree, e.g. synthetic fixtures or old records). */
+function planNodesFromMermaid(mermaid: string): Map<string, string> {
 	const nodes = new Map<string, string>();
-	for (const line of mermaid.split(/\r?\n/)) {
-		for (const m of line.matchAll(/([a-z0-9]+(?:[_-][a-z0-9]+)*)\s*(?:\[\s*"?([^"\]]*)"?\s*\]|\(\s*"([^"]*)"\s*\))?/g)) {
-			const id = m[1]!;
-			if (/^(graph|flowchart|td|tb|lr|rl|bt)$/i.test(id)) continue;
-			const title = (m[2] ?? m[3] ?? "").trim();
-			if (!nodes.has(id) || (title && nodes.get(id) === id)) nodes.set(id, title || nodes.get(id) || id);
+	const record = (rawId: string, rawTitle?: string) => {
+		const id = rawId.trim();
+		if (!id || /^(graph|flowchart|td|tb|lr|rl|bt|subgraph|end|style|classdef|class|linkstyle)$/i.test(id)) return;
+		const cleaned = (rawTitle ?? "").trim().replace(/^"(.*)"$/, "$1").trim();
+		if (!nodes.has(id) || (cleaned && nodes.get(id) === id)) nodes.set(id, cleaned || nodes.get(id) || id);
+	};
+	for (const rawLine of mermaid.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line || line.startsWith("%%")) continue;
+		if (/^(?:graph|flowchart)\s+(?:TD|TB|LR|RL|BT)\b/i.test(line)) continue;
+		if (/^(?:subgraph|end|style|classDef|class|linkStyle)\b/i.test(line)) continue;
+		const parts = line.split(/\s*(?:--[^-\n]+-->|-->|==>|-\.->)(?:\|[^|]*\|)?\s*/);
+		for (const part of parts) {
+			const token = part.trim().replace(/;+$/, "").trim();
+			const m = token.match(/^([a-z0-9]+(?:[_-][a-z0-9]+)*)(?:\s*(?:\[\s*"([^"]*)"\s*\]|\[([^\]]*)\]|\(\s*"([^"]*)"\s*\)|\(([^)]*)\)))?$/i);
+			if (m) record(m[1]!, m[2] ?? m[3] ?? m[4] ?? m[5]);
 		}
 	}
 	return nodes;
+}
+
+/** Plan node ids and titles from a plan_init tool result: prefer the canonical
+ *  parsed tree stored in `details.tree.nodes`, falling back to Mermaid parsing. */
+function planNodesFromResult(details: unknown, mermaid: string): Map<string, string> {
+	const rawNodes = (details as { tree?: { nodes?: unknown } } | null)?.tree?.nodes;
+	if (Array.isArray(rawNodes) && rawNodes.length > 0) {
+		const nodes = new Map<string, string>();
+		for (const entry of rawNodes) {
+			if (!entry || typeof entry !== "object") continue;
+			const id = str((entry as { id?: unknown }).id);
+			if (!id) continue;
+			const title = str((entry as { title?: unknown }).title) ?? id;
+			nodes.set(id, title);
+		}
+		if (nodes.size > 0) return nodes;
+	}
+	return planNodesFromMermaid(mermaid);
 }
 
 export function auditChat(record: AuditRecord): AuditReport {
 	const messages = record.messages;
 	const flags: AuditFlag[] = [];
 	const models = new Set<string>();
+	const failedOutputs = failedOutputCallIds(messages);
 	const results = new Map<string, { message: ToolResult; index: number }>();
 	messages.forEach((m, index) => {
 		if (m.role === "toolResult") results.set(m.toolCallId, { message: m, index });
@@ -178,6 +234,7 @@ export function auditChat(record: AuditRecord): AuditReport {
 	const coursesCreated: AuditReport["coursesCreated"] = [];
 	let previousPlan: Set<string> | null = null;
 	let teachStart = Number.POSITIVE_INFINITY;
+	let firstTeachQuestionIndex = Number.POSITIVE_INFINITY;
 	messages.forEach((m, index) => {
 		if (m.role === "custom" && m.customType === "probe-handoff" && teachStart === Number.POSITIVE_INFINITY) teachStart = index;
 		if (m.role !== "assistant") return;
@@ -185,10 +242,10 @@ export function auditChat(record: AuditRecord): AuditReport {
 		if (a.provider && a.model) models.add(`${a.provider}:${a.model}`);
 		for (const block of a.content) {
 			if (block.type !== "toolCall") continue;
-			const args = (block.arguments ?? {}) as Record<string, unknown>;
+			const rawArgs = (block.arguments ?? {}) as Record<string, unknown>;
 			const result = results.get(block.id);
 			if (block.name === "plan_init" && result && !result.message.isError) {
-				const nodes = planNodes(String(args.mermaid ?? ""));
+				const nodes = planNodesFromResult(result.message.details, String(rawArgs.mermaid ?? ""));
 				for (const [id, title] of nodes) nodeTitles[id] = title;
 				const ids = new Set(nodes.keys());
 				planChanges.push({
@@ -201,16 +258,18 @@ export function auditChat(record: AuditRecord): AuditReport {
 				previousPlan = ids;
 			}
 			if (block.name === "anki_card" && result && !result.message.isError && (result.message.details as { ok?: boolean } | null)?.ok !== false) {
-				const reason = str(args.reason) ?? "?";
+				const reason = str(rawArgs.reason) ?? "?";
 				ankiCards[reason] = (ankiCards[reason] ?? 0) + 1;
 			}
 			if (block.name === CREATE_COURSE_TOOL && result) {
-				coursesCreated.push({ index, title: str(args.title) ?? "?", ok: !result.message.isError });
+				coursesCreated.push({ index, title: str(rawArgs.title) ?? "?", ok: !result.message.isError });
 			}
 			if (!QUESTION_TOOL_NAMES.has(block.name)) continue;
 			// A rejected tool invocation never posed a question to the learner.
 			if (result?.message.isError) continue;
+			const args = healedQuestionArgs(block.arguments);
 			const phase = block.name === "quiz" || block.name === "explain" ? "teach" : block.name === "ask_user_question" ? "ask" : "probe";
+			if (phase === "teach" && index < firstTeachQuestionIndex) firstTeachQuestionIndex = index;
 			const format = block.name === "quiz" || block.name === "probe" ? "choice" : block.name === "ask_user_question" ? "ask" : "free";
 			const details = (result?.message.details ?? null) as Record<string, unknown> | null;
 			const answers = Array.isArray(details?.answers) ? (details!.answers as Array<{ value?: unknown; label?: unknown }>) : [];
@@ -223,7 +282,7 @@ export function auditChat(record: AuditRecord): AuditReport {
 				tool: block.name,
 				phase,
 				format,
-				type: phase === "teach" ? normalizeQuizType(args.type) : undefined,
+				type: phase === "teach" ? (normalizeQuizType(args.type) ?? "check") : undefined,
 				nodeId: str(args.nodeId),
 				intent: str(args.intent),
 				rung: num(args.rung),
@@ -264,12 +323,22 @@ export function auditChat(record: AuditRecord): AuditReport {
 		}
 	}
 
-	// E3 — climb after a confident correct check; no same rung twice on a node.
+	// E3 — climb after a confident correct check; no same rung twice on a node
+	// within the same class. Skip predictions, same-message parallel siblings,
+	// cross-class checks, and repair/review/exercise/exam follow-ups.
 	teach.forEach((q, i) => {
-		if (q.type !== "check" || q.correct !== true || (q.confidence ?? 0) < CONFIDENT || q.rung === 6) return;
-		const next = teach.slice(i + 1).find((n) => n.nodeId === q.nodeId);
-		if (!next) return;
-		if (q.rung !== undefined && next.rung !== undefined && next.rung <= q.rung && next.intent !== "repair" && next.intent !== "review") {
+		if (!q.nodeId || q.type !== "check" || q.correct !== true || (q.confidence ?? 0) < CONFIDENT || q.rung === 6) return;
+		const next = teach.slice(i + 1).find((n) => n.nodeId === q.nodeId && n.type === "check" && n.index > q.index);
+		if (!next || next.classIndex !== q.classIndex) return;
+		if (
+			q.rung !== undefined &&
+			next.rung !== undefined &&
+			next.rung <= q.rung &&
+			next.intent !== "repair" &&
+			next.intent !== "review" &&
+			next.intent !== "exercise" &&
+			next.intent !== "exam"
+		) {
 			flags.push({ rule: "E3", index: next.index, message: `Depois de um acerto confiante no degrau ${q.rung} (nó ${q.nodeId}), a pergunta seguinte ficou no degrau ${next.rung}.` });
 		}
 	});
@@ -289,30 +358,66 @@ export function auditChat(record: AuditRecord): AuditReport {
 		}
 	});
 
-	// E8/L1 — a missed check is followed by repair.
+	// E8/L1 — a missed check is followed by repair (skip same-message parallel
+	// siblings, and allow a C3 review opening when a new class begins next).
 	teach.forEach((q, i) => {
 		if (q.type !== "check" || !(q.correct === false || q.dontKnow)) return;
-		const next = teach[i + 1];
+		const next = teach.slice(i + 1).find((n) => n.index > q.index);
 		if (!next) return;
+		if (next.classIndex !== q.classIndex && next.intent === "review") return;
 		if (next.intent !== undefined && next.intent !== "repair") {
 			flags.push({ rule: "E8", index: next.index, message: `Depois do erro na checagem do nó ${q.nodeId ?? "?"}, a pergunta seguinte não foi de reparo (intenção: ${next.intent}).` });
 		}
 	});
 
-	// L4 — every repaired gap is re-checked in a later class.
+	// L4 — every repaired gap is re-checked in a later class (only flag once
+	// at least one later class has happened).
+	const lastClassIndex = Math.max(0, classes.length - 1);
 	const gaps = gapLedger(questions);
 	for (const gap of gaps) {
-		if (gap.repairs > 0 && !gap.verifiedLater) {
-			flags.push({ rule: "L4", index: gap.firstIndex, message: `A lacuna ${gap.slug} foi reparada mas nunca reverificada numa aula posterior.` });
+		if (gap.repairs > 0 && gap.firstClass < lastClassIndex && !gap.verifiedLater) {
+			const detail = gap.freeChecksLater > 0
+				? `A lacuna ${gap.slug} foi reparada e teve ${gap.freeChecksLater} resposta(s) livre(s) em aula posterior (correção em prosa: conferir na transcrição), mas sem reverificação automática confirmada.`
+				: `A lacuna ${gap.slug} foi reparada mas nunca reverificada numa aula posterior.`;
+			flags.push({ rule: "L4", index: gap.firstIndex, message: detail });
 		}
 	}
 
-	// C7 — a teaching turn ends with a question.
+	// C7 — a teaching turn ends with a question (except pre-teaching plan
+	// presentation/revision, 10-planning.md:43, where plan_init runs and the
+	// tutor pauses for the learner to accept or revise the plan).
 	messages.forEach((m, index) => {
 		if (index <= teachStart || m.role !== "assistant") return;
 		const a = m as Assistant;
 		if (a.stopReason !== "stop") return;
-		const text = a.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join(" ").replace(/\s+/g, " ").trim();
+		const turnChunks: string[] = [];
+		let calledPlanInit = false;
+		for (let j = index; j > teachStart; j--) {
+			const msg = messages[j]!;
+			if (msg.role === "user") break;
+			if (msg.role === "custom") {
+				if (msg.customType === "plan-block") continue;
+				break;
+			}
+			if (msg.role === "toolResult") {
+				if (QUESTION_TOOL_NAMES.has(msg.toolName)) break;
+				continue;
+			}
+			if (msg.role === "assistant") {
+				const am = msg as Assistant;
+				if (j < index && am.stopReason === "stop") break;
+				const spoken = userFacingTextOf(am.content, failedOutputs).join(" ").replace(/\s+/g, " ").trim();
+				if (spoken) turnChunks.unshift(spoken);
+				for (const block of am.content) {
+					if (block.type === "toolCall" && block.name === "plan_init") {
+						const res = results.get(block.id);
+						if (res && !res.message.isError) calledPlanInit = true;
+					}
+				}
+			}
+		}
+		if (calledPlanInit && index < firstTeachQuestionIndex) return;
+		const text = turnChunks.join(" ").trim();
 		flags.push({ rule: "C7", index, message: `Turno de ensino terminou sem pergunta: “${clip(text, 140)}”. Conferir na transcrição: um balanço após o aluno pedir para parar é uma exceção legítima.` });
 	});
 
@@ -340,8 +445,10 @@ export interface GapEntry {
 	firstClass: number;
 	misses: number;
 	repairs: number;
-	/** A correct answer tagged with the gap in a class after its first. */
+	/** A correct multiple-choice answer tagged with the gap in a class after its first. */
 	verifiedLater: boolean;
+	/** Answered free-response checks tagged with the gap in a class after its first (graded in prose). */
+	freeChecksLater: number;
 	questions: number;
 }
 
@@ -349,11 +456,23 @@ export function gapLedger(questions: readonly AuditQuestion[]): GapEntry[] {
 	const bySlug = new Map<string, GapEntry>();
 	for (const q of questions) {
 		if (!q.gap || q.phase !== "teach") continue;
-		const entry = bySlug.get(q.gap) ?? { slug: q.gap, firstIndex: q.index, firstClass: q.classIndex, misses: 0, repairs: 0, verifiedLater: false, questions: 0 };
+		const entry = bySlug.get(q.gap) ?? {
+			slug: q.gap,
+			firstIndex: q.index,
+			firstClass: q.classIndex,
+			misses: 0,
+			repairs: 0,
+			verifiedLater: false,
+			freeChecksLater: 0,
+			questions: 0,
+		};
 		entry.questions++;
 		if (q.intent === "repair") entry.repairs++;
 		if (q.correct === false || q.dontKnow) entry.misses++;
-		if (q.classIndex > entry.firstClass && q.correct === true && !q.dontKnow && q.answered && !q.dismissed) entry.verifiedLater = true;
+		if (q.classIndex > entry.firstClass && q.answered && !q.dismissed && !q.dontKnow) {
+			if (q.correct === true) entry.verifiedLater = true;
+			else if (q.format === "free") entry.freeChecksLater++;
+		}
 		bySlug.set(q.gap, entry);
 	}
 	return [...bySlug.values()];
@@ -468,11 +587,21 @@ export function renderAuditMarkdown(report: AuditReport, record: AuditRecord, op
 
 	L.push("## Lacunas (L1, L3, L4)", "");
 	L.push("Respostas livres têm correção em prosa: confira-a na transcrição; responder, por si só, não comprova a reverificação da lacuna.", "");
+	const lastClassIndex = Math.max(0, report.classes.length - 1);
 	const gaps = gapLedger(report.questions);
 	if (gaps.length === 0) L.push(noTags ? "Sem dado." : "Nenhuma lacuna etiquetada.");
 	else {
 		L.push(row(["Lacuna", "Aula em que surgiu", "Erros", "Reparos", "Perguntas", "Reverificada depois?"]), row(["---", "---", "---", "---", "---", "---"]));
-		for (const g of gaps) L.push(row([g.slug, g.firstClass + 1, g.misses, g.repairs, g.questions, g.verifiedLater ? "sim" : "**não**"]));
+		for (const g of gaps) {
+			const status = g.verifiedLater
+				? "sim"
+				: g.firstClass >= lastClassIndex
+					? "aguardando aula posterior"
+					: g.freeChecksLater > 0
+						? "resposta livre (conferir)"
+						: "**não**";
+			L.push(row([g.slug, g.firstClass + 1, g.misses, g.repairs, g.questions, status]));
+		}
 		const repeated = gaps.filter((g) => g.misses >= 2);
 		if (repeated.length) L.push("", `Lacunas com erro repetido (L3: mudar a representação e procurar mais fundo): ${repeated.map((g) => g.slug).join(", ")}`);
 	}
@@ -531,6 +660,7 @@ export function renderTranscript(record: AuditRecord): string {
 	const L: string[] = [];
 	const results = new Map<string, ToolResult>();
 	for (const m of record.messages) if (m.role === "toolResult") results.set(m.toolCallId, m);
+	const failedOutputs = failedOutputCallIds(record.messages);
 	record.messages.forEach((m, i) => {
 		if (m.role === "user") {
 			const content = typeof m.content === "string" ? m.content : m.content.map((c) => (c.type === "text" ? c.text : `[${c.type}]`)).join(" ");
@@ -540,43 +670,66 @@ export function renderTranscript(record: AuditRecord): string {
 			L.push(`> [${i}] ${m.customType} · ${when(m.timestamp)}: ${clip(m.content.replace(/\s+/g, " "), 600)}`, "");
 		} else if (m.role === "assistant") {
 			const a = m as Assistant;
-			L.push(`### [${i}] Tutor · ${when(a.timestamp)}`, "");
+			const body: string[] = [];
 			for (const block of a.content) {
-				if (block.type === "text" && block.text.trim()) L.push(block.text.trim(), "");
+				if (block.type === "text" && block.text.trim()) body.push(block.text.trim(), "");
 				if (block.type !== "toolCall") continue;
-				const args = (block.arguments ?? {}) as Record<string, unknown>;
+				if (block.name === SEND_TO_USER_TOOL) {
+					if (failedOutputs.has(block.id)) {
+						body.push("*(send_to_user recusado)*", "");
+					} else {
+						const spoken = sendToUserText(block);
+						if (spoken) body.push(spoken, "");
+					}
+					continue;
+				}
 				if (QUESTION_TOOL_NAMES.has(block.name)) {
+					const args = healedQuestionArgs(block.arguments);
 					const tags = ["type", "nodeId", "intent", "rung", "gap", "source", "purpose"].filter((k) => args[k] !== undefined).map((k) => `${k}=${String(args[k])}`).join(" ");
-					L.push(`**→ ${block.name}**${tags ? ` \`${tags}\`` : ""}`, "", String(args.question ?? ""), "");
-					if (str(args.details)) L.push(String(args.details), "");
-					const options = Array.isArray(args.options) ? (args.options as Array<{ label?: unknown; value?: unknown }>) : [];
-					const normalized = normalizeOptions(options.map((o) => ({ label: String(o.label ?? ""), value: typeof o.value === "string" ? o.value : undefined })));
-					const commitment = typeof args.correctAnswer === "string" || (Array.isArray(args.correctAnswer) && args.correctAnswer.every((value) => typeof value === "string")) ? args.correctAnswer : undefined;
-					const correct = block.name === "quiz" || block.name === "probe" ? resolveCorrect(commitment, normalized).indices : [];
-					for (const [index, o] of options.entries()) L.push(`- ${correct.includes(index + 1) ? "**(certa)** " : ""}${String(o.label ?? "")}`);
-					if (block.name === "explain" || block.name === "recall") L.push(`- Resposta comprometida: ${String(args.correctAnswer ?? "")}`);
-					if (str(args.explanation)) L.push("", `Explicação comprometida: ${String(args.explanation)}`);
+					body.push(`**→ ${block.name}**${tags ? ` \`${tags}\`` : ""}`, "", String(args.question ?? ""), "");
+					if (str(args.details)) body.push(String(args.details), "");
+					const rawOptions = Array.isArray(args.options) ? args.options : [];
+					const options = rawOptions.map((o) => (o && typeof o === "object" ? (o as { label?: unknown; value?: unknown }) : { label: String(o ?? "") }));
+					let correct: number[] = [];
+					if ((block.name === "quiz" || block.name === "probe") && options.length > 0) {
+						try {
+							const normalized = normalizeOptions(options.map((o) => ({ label: String(o.label ?? ""), value: typeof o.value === "string" ? o.value : undefined })));
+							const commitment = typeof args.correctAnswer === "string" || (Array.isArray(args.correctAnswer) && args.correctAnswer.every((value) => typeof value === "string")) ? args.correctAnswer : undefined;
+							correct = resolveCorrect(commitment, normalized).indices;
+						} catch {
+							// Malformed or duplicate-option rejected call — render raw options without crashing.
+							correct = [];
+						}
+					}
+					for (const [index, o] of options.entries()) body.push(`- ${correct.includes(index + 1) ? "**(certa)** " : ""}${String(o.label ?? "")}`);
+					if (block.name === "explain" || block.name === "recall") body.push(`- Resposta comprometida: ${String(args.correctAnswer ?? "")}`);
+					if (str(args.explanation)) body.push("", `Explicação comprometida: ${String(args.explanation)}`);
 					const r = results.get(block.id);
 					const d = (r?.details ?? null) as Record<string, unknown> | null;
 					if (r?.isError) {
-						L.push("", "Chamada recusada; a pergunta não foi apresentada ao aluno.", ...r.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text));
+						body.push("", "Chamada recusada; a pergunta não foi apresentada ao aluno.", ...r.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text));
 					} else if (d?.dismissed) {
-						L.push("", "← **Aluno**: pergunta dispensada.");
+						body.push("", "← **Aluno**: pergunta dispensada.");
 					} else if (d) {
 						const answers = Array.isArray(d.answers) ? (d.answers as Array<{ label?: unknown }>).map((x) => String(x.label ?? "")).join(" | ") : "";
 						const verdict = d.dontKnow ? "" : typeof d.correct === "boolean" ? (d.correct ? "certo" : "errado") : "";
-						L.push("", `← **Aluno** · ${when(r!.timestamp)}: ${d.dontKnow ? "NÃO SEI" : answers || String(d.text ?? d.other ?? "")}${verdict ? ` · ${verdict}` : ""}${typeof d.confidence === "number" ? ` · confiança ${d.confidence}%` : ""}`);
+						body.push("", `← **Aluno** · ${when(r!.timestamp)}: ${d.dontKnow ? "NÃO SEI" : answers || String(d.text ?? d.other ?? "")}${verdict ? ` · ${verdict}` : ""}${typeof d.confidence === "number" ? ` · confiança ${d.confidence}%` : ""}`);
 						const thinking = str(d.thinking) ?? str(d.note);
-						if (thinking) L.push(`  - Raciocínio: ${thinking}`);
-						if (typeof d.readingThinking === "string" && d.readingThinking.trim()) L.push(`  - Lendo: ${d.readingThinking.trim()}`);
+						if (thinking) body.push(`  - Raciocínio: ${thinking}`);
+						if (typeof d.readingThinking === "string" && d.readingThinking.trim()) body.push(`  - Lendo: ${d.readingThinking.trim()}`);
 					}
-					L.push("");
+					body.push("");
 				} else if (block.name !== "plan_init") {
-					L.push(`*(${block.name}: ${clip(JSON.stringify(args), 300)})*`, "");
+					const args = (block.arguments ?? {}) as Record<string, unknown>;
+					body.push(`*(${block.name}: ${clip(JSON.stringify(args), 300)})*`, "");
 				} else {
-					L.push(`*(plan_init)*`, "");
+					body.push(`*(plan_init)*`, "");
 				}
 			}
+			if (body.length === 0 && a.stopReason === "stop") {
+				body.push("*(turno encerrado sem texto adicional)*", "");
+			}
+			L.push(`### [${i}] Tutor · ${when(a.timestamp)}`, "", ...body);
 		}
 	});
 	return L.join("\n");
