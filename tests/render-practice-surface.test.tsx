@@ -19,7 +19,7 @@ import { describe, it } from "node:test";
 
 import { PracticeDock } from "../components/practice-dock.tsx";
 import { ConcludeCard, ProblemCard, ThinkingCard } from "../components/practice-cards.tsx";
-import { GraphContextCard } from "../components/graph-context-card.tsx";
+import { GraphContextCard, GraphContextProposition } from "../components/graph-context-card.tsx";
 import { newGraphContextMessage } from "../src/core/native-messages.ts";
 import { projectView } from "../src/core/view.ts";
 import type { ArtifactPartProps } from "../src/core";
@@ -253,6 +253,22 @@ describe("GraphContextCard", () => {
 		);
 		assert.ok(html.includes("1 proposition</span>"));
 		assert.ok(!html.includes("chain"));
+	});
+
+	it("expanded rows render statement math through KaTeX, inline after the name", () => {
+		const html = renderToStaticMarkup(
+			<GraphContextProposition proposition={{
+				id: "n1",
+				name: "Inclinação",
+				statement: "A inclinação é $m=\\frac{\\Delta y}{\\Delta x}$, para $x_2\\ne x_1$.",
+			}} />,
+		);
+		assert.ok(html.includes('data-testid="graph-context-prop-n1"'));
+		assert.ok(html.includes("Inclinação</span>"));
+		assert.equal(html.split('class="katex"').length - 1, 2, "both formulas render as KaTeX");
+		assert.ok(html.includes("Δ"), "\\Delta renders as its glyph");
+		assert.ok(!html.includes("$m="), "no raw dollar source");
+		assert.ok(html.includes("A inclinação é"));
 	});
 
 	it("the marker projects to the card's part (projectView fold)", () => {
