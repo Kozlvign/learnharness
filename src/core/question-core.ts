@@ -262,21 +262,26 @@ export type TeachIntent = (typeof TEACH_INTENTS)[number];
 /** The rung ladder's bounds (docs/rigor.md, rule E2). */
 export const TEACH_RUNG_MIN = 1;
 export const TEACH_RUNG_MAX = 6;
+/** Minimum rung for a node-closing challenge (docs/rigor.md, rule E7). */
+export const CHALLENGE_RUNG_MIN = 4;
 
 /** A gap slug: the plan-slug grammar (lowercase words joined by - or _). */
 const GAP_SLUG_RE = /^[a-z0-9]+([_-][a-z0-9]+)*$/;
 
-// Optional in the schema, REQUIRED at the teach tools' boundary
-// (teachTagProblems): bare test agents and old records stay valid.
-const teachIntentField = Type.Optional(Type.Union(TEACH_INTENTS.map((intent) => Type.Literal(intent)), {
+// Required on the real teacher tools (teachQuizInputObject /
+// teachExplainInputObject) so JSON Schema enforces it upfront without an extra
+// retry; wrapped in Type.Optional on the bare quiz/explain schemas so legacy
+// bare test agents stay valid.
+const teachIntentRequiredField = Type.Union(TEACH_INTENTS.map((intent) => Type.Literal(intent)), {
 	description:
 		"REQUIRED — why you pose this question, as a bare word (no quotes): step = a new reasoning step (its prediction " +
 		"or its check); climb = a harder question on an idea the learner just got right; challenge = the problem that " +
-		"closes a plan node; repair = fixing a gap the learner just showed (set gap); review = retrieval of earlier " +
-		"material (a new class's opening, a delayed re-check); exam = a unit exam problem; exercise = an end-of-section " +
-		"exercise (set source when it comes from the learner's material); detour = a question inside a detour the " +
-		"learner chose to explore.",
-}));
+		"closes a plan node (type check, rung 4–6); repair = fixing a gap the learner just showed (type check, set gap); " +
+		"review = retrieval of earlier material (a new class's opening, a delayed re-check); exam = a unit exam problem; " +
+		"exercise = an end-of-section exercise (set source when it comes from the learner's material); detour = a question " +
+		"inside a detour the learner chose to explore.",
+});
+const teachIntentField = Type.Optional(teachIntentRequiredField);
 
 const teachRungField = Type.Optional(
 	Type.Integer({
@@ -309,11 +314,23 @@ const teachSourceField = Type.Optional(
  *  boundary (execute) — the schema carries the shapes. Empty = clean. */
 export function teachTagProblems(input: { type?: unknown; intent?: unknown; rung?: unknown; gap?: unknown }): string[] {
 	const problems: string[] = [];
+	const role = normalizeQuizType(input.type);
 	if (input.intent === undefined) {
 		problems.push(`intent is required — declare why you pose this question (${TEACH_INTENTS.join(", ")}).`);
 	}
-	if (normalizeQuizType(input.type) === "check" && input.rung === undefined) {
+	if (role === "check" && input.rung === undefined) {
 		problems.push(`rung is required on checks — declare the difficulty rung (${TEACH_RUNG_MIN}–${TEACH_RUNG_MAX}) this check sits at.`);
+	}
+	if (input.intent === "challenge") {
+		if (role !== "check") {
+			problems.push('intent challenge must use type "check" — a node-closing challenge is a check, not a prediction.');
+		}
+		if (typeof input.rung === "number" && input.rung < CHALLENGE_RUNG_MIN) {
+			problems.push(`intent challenge needs rung ${CHALLENGE_RUNG_MIN}–${TEACH_RUNG_MAX} (got ${input.rung}) — a node-closing challenge integrates or proves, never a routine check.`);
+		}
+	}
+	if (input.intent === "repair" && role !== "check") {
+		problems.push('intent repair must use type "check" — repairs verify a step after teaching, not predictions.');
 	}
 	const gap = typeof input.gap === "string" ? input.gap.trim() : undefined;
 	if (input.intent === "repair" && !gap) {
@@ -372,6 +389,19 @@ export const quizInputObject = Type.Object({
 	// Fork: the audit tags (docs/rigor.md) follow the required pair —
 	// declared before the content, so they are generated early.
 	intent: teachIntentField,
+	rung: teachRungField,
+	...quizInputBase.properties,
+	gap: teachGapField,
+	source: teachSourceField,
+});
+
+/** The real teacher's quiz schema: identical property order to quizInputObject,
+ *  with `intent` declared required in JSON Schema so the model supplies it on
+ *  the first call without burning a retry round-trip. */
+export const teachQuizInputObject = Type.Object({
+	type: predictCheckType,
+	nodeId: quizInputObject.properties.nodeId,
+	intent: teachIntentRequiredField,
 	rung: teachRungField,
 	...quizInputBase.properties,
 	gap: teachGapField,
@@ -446,6 +476,18 @@ export const explainInputObject = Type.Object({
 	}),
 	// Fork: the audit tags (docs/rigor.md), exactly as the teach quiz's.
 	intent: teachIntentField,
+	rung: teachRungField,
+	...explainInputBase.properties,
+	gap: teachGapField,
+	source: teachSourceField,
+});
+
+/** The real teacher's explain schema: identical property order to
+ *  explainInputObject, with `intent` declared required in JSON Schema. */
+export const teachExplainInputObject = Type.Object({
+	type: predictCheckType,
+	nodeId: explainInputObject.properties.nodeId,
+	intent: teachIntentRequiredField,
 	rung: teachRungField,
 	...explainInputBase.properties,
 	gap: teachGapField,

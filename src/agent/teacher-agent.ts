@@ -20,6 +20,8 @@ import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
 import { createReadTool, readTool } from "./tools/read.ts";
+import { ANKI_CARD_TOOL } from "../core/anki/contract.ts";
+import { CREATE_COURSE_TOOL } from "../core/course.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
@@ -61,6 +63,7 @@ export type AgentKind = "prober" | "teacher" | "practice";
 export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
+	ANKI_CARD_TOOL, CREATE_COURSE_TOOL,
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE

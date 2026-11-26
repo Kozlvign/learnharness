@@ -6,12 +6,12 @@ import {
 	askOptionProblems,
 	askPurposeProblems,
 	explainInputBase,
-	explainInputObject,
 	explainInputProblems,
 	parseOptionsIfString,
 	probeQuizInputSchema,
-	quizInputObject,
 	quizInputProblems,
+	teachExplainInputObject,
+	teachQuizInputObject,
 	teachTagProblems,
 } from "../core/question-core.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
@@ -187,13 +187,21 @@ function quizDescription(delta: { name: "quiz" | "probe"; nodeId: boolean; types
 	);
 }
 
+/** The canonical free-recall example body (mirroring quizExampleBody): compact
+ *  applied prompt exercising LaTeX escaping inside JSON strings. */
+export const explainExampleBody = {
+	question: "Why does the derivative of $y=\\sin(2x)$ carry a factor of $2$?",
+	correctAnswer:
+		"By the chain rule, $u=2x$ changes twice as fast as $x$, so $\\frac{dy}{dx}=\\frac{dy}{du}\\cdot\\frac{du}{dx}=\\cos(2x)\\cdot 2=2\\cos(2x)$.",
+};
+
 /** The explain mechanics (free-recall quizzing): the commitment rule is
  *  the GRADING CONTRACT — mechanics, not doctrine. The softer doctrine
  *  (near-miss reading, genuine gaps) lives in the shared prompt chunk.
  *  `name`: the teach tool self-references as explain, the probe variant
  *  as recall (owner 2026-10-09). */
 function explainDescription(name: "explain" | "recall", nodeId: boolean): string {
-	return (
+	const base =
 		"Ask the learner to EXPLAIN something in his own words — a graded check with NO options: he types a free-text " +
 		"answer. Unlike ask_user_question (no right answer), " +
 		name +
@@ -202,9 +210,17 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean): string
 		"sees the question. When his answer returns, grade it strictly against the commitment — never revise it " +
 		"after seeing his words. He sees the committed answer on submit. " +
 		(nodeId
-			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. " +
+			? "Every call declares `type` — the question's role in the teaching cycle; the field's own description says when each kind fires. " +
+				"Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. " +
 				TEACH_TAGS_SENTENCE
-			: "")
+			: "");
+	const example = nodeId ? { ...teachExampleTags, ...explainExampleBody } : explainExampleBody;
+	return (
+		base +
+		"\nExample arguments — copy the escaping exactly: inside JSON strings a LaTeX backslash is \\\\ and a newline is \\n.\n```json\n" +
+		JSON.stringify(example, null, 2) +
+		"\n```" +
+		(nodeId ? " The example's nodeId is illustrative — copy an exact id from this session's plan_init." : "")
 	);
 }
 
@@ -234,12 +250,12 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
  *  teach quiz — phases/plan recognize BOTH tool names). */
 export function teachExplainToolFor(
 	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
-): AgentTool<typeof explainInputObject> {
+): AgentTool<typeof teachExplainInputObject> {
 	return {
 		name: "explain",
 		label: "explain",
 		description: explainDescription("explain", true),
-		parameters: explainInputObject,
+		parameters: teachExplainInputObject,
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
@@ -388,12 +404,12 @@ function nodeIdProblem(ctx: Pick<PlanToolContext, "chatId" | "chatStore">, nodeI
  *  nodeId is REQUIRED (owner ruling 2026-09-26): the untagged ad-hoc quiz is
  *  gone — off-map checks route through ask_user_question, and the teach
  *  seam (first tagged quiz) is structurally guaranteed. */
-export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStore">): AgentTool<typeof quizInputObject> {
+export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStore">): AgentTool<typeof teachQuizInputObject> {
 	return {
 		name: "quiz",
 		label: "quiz",
 		description: quizDescription({ name: "quiz", nodeId: true, types: true }),
-		parameters: quizInputObject,
+		parameters: teachQuizInputObject,
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
