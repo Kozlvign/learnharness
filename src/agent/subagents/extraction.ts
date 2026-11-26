@@ -149,13 +149,15 @@ const propositionProps = {
 		description:
 			"A very short label — established terminology, the term the discipline itself uses, a glossary " +
 			"headword a textbook would print ('Will to power', 'Divine command theory'). Not a sentence, " +
-			"needn't be unique or self-contained: this becomes the node's global label in the graph.",
+			"needn't be unique or self-contained: this becomes the node's global label in the graph. " +
+			"Plain text: no LaTeX or Markdown.",
 	}),
 	statement: Type.String({
 		description:
 			"One true, self-contained, world-facing core idea at full precision. Never about the " +
 			'learner, the teacher, or the reading: not "the learner understands X" but "X". A misconception ' +
-			"enters as its TRUE correction.",
+			"enters as its TRUE correction. Write math in LaTeX — inline $…$, display $$…$$ — never " +
+			"Unicode stand-ins such as Δy/Δx or x₂.",
 	}),
 	aliases: Type.Optional(
 		Type.Array(Type.String(), {

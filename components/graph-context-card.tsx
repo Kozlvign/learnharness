@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
+import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,6 +19,27 @@ import { cn } from "@/lib/utils";
 export interface GraphContextData {
 	propositions: { id: string; name: string; statement: string }[];
 	chains: string[];
+}
+
+/** One picked proposition, "name — statement", as a pure seam for render
+ *  pins. Statements carry LaTeX math (the extractor's statement field,
+ *  extraction.ts), so the statement renders through the graph node
+ *  card's static Markdown + KaTeX path, inline after the name. `.lh-prose`
+ *  sets the prose font and size in unlayered CSS that beats Tailwind's
+ *  type utilities — the variable overrides keep the card's own type. */
+const STATEMENT_TYPE = "inline [&>p]:inline text-muted-foreground [--font-prose:var(--font-ui)] " +
+	"[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625] " +
+	"[&_[data-streamdown=inline-code]]:[font-size:inherit] [&_[data-streamdown=inline-code]]:[color:inherit]";
+export function GraphContextProposition({ proposition: p }: { proposition: GraphContextData["propositions"][number] }) {
+	return (
+		<div data-testid={`graph-context-prop-${p.id}`} className="leading-relaxed">
+			<span className="font-medium text-foreground/80">{p.name}</span>
+			<span className="text-muted-foreground"> — </span>
+			<ToolContentResponse mode="static" className={STATEMENT_TYPE}>
+				{p.statement}
+			</ToolContentResponse>
+		</div>
+	);
 }
 
 export function GraphContextCard({ data }: { data: GraphContextData }) {
@@ -42,10 +64,7 @@ export function GraphContextCard({ data }: { data: GraphContextData }) {
 			{open && (
 				<div data-testid="graph-context-body" className="mt-1 space-y-1 rounded-lg border border-dashed border-border/70 px-4 py-3 text-xs">
 					{propositions.map((p) => (
-						<div key={p.id} data-testid={`graph-context-prop-${p.id}`} className="leading-relaxed">
-							<span className="font-medium text-foreground/80">{p.name}</span>
-							<span className="text-muted-foreground"> — {p.statement}</span>
-						</div>
+						<GraphContextProposition key={p.id} proposition={p} />
 					))}
 					{chains.length > 0 && (
 						<div className="pt-1">

@@ -1531,6 +1531,43 @@ describe("the extractor redesign (owner, 2026-09-30): chains are the deliverable
 		assert.deepEqual(await pipeline.runExtraction(chatId), { nodes: 2, chains: 1 });
 		assert.equal(calls, 1);
 	});
+
+	it("both doors' submit schema asks for LaTeX math in statements and plain-text names", async () => {
+		// The field descriptions are the details channel (EXTRACTION_CORE
+		// .submission); the graph card renders statement math through KaTeX,
+		// while names are drawn as canvas labels that cannot.
+		type FieldProps = Record<string, { description?: string }>;
+		const seen: FieldProps[] = [];
+		const capture = (findings: unknown, id: string) => fauxEngine([(context) => {
+			const system = context.messages.find((message) => message.role === "system");
+			assert.ok(system && system.role === "system");
+			const submit = system.toolsAdded?.find((tool) => tool.name === "submit_findings");
+			assert.ok(submit);
+			const schema = submit.parameters as { properties: { propositions: { items: { properties: FieldProps } } } };
+			seen.push(schema.properties.propositions.items.properties);
+			return fauxAssistantMessage([fauxToolCall("submit_findings", findings as ToolCall["arguments"], { id })], { stopReason: "toolUse" });
+		}]);
+		const { chatId } = fixtureChat();
+		const session = createExtractionPipeline({
+			chatStore,
+			graphStore: memoryLedgers(),
+			extractor: capture(FINDINGS, "session-schema"),
+			auditor: submitModel("submit_review", { links: [] }),
+		});
+		assert.deepEqual(await session.runExtraction(chatId), { nodes: 2, chains: 1 });
+		const notes = createExtractionPipeline({
+			chatStore,
+			graphStore: memoryLedgers(),
+			extractor: capture(NOTES_FINDINGS, "notes-schema"),
+			auditor: submitModel("submit_review", { links: [] }),
+		});
+		assert.deepEqual(await notes.importNotes({ filePath: "/vault/schema.md", text: NOTES_TEXT }), { nodes: 1, chains: 0 });
+		assert.equal(seen.length, 2);
+		for (const props of seen) {
+			assert.match(props.statement?.description ?? "", /Write math in LaTeX — inline \$…\$, display \$\$…\$\$ — never Unicode stand-ins such as Δy\/Δx or x₂\.$/);
+			assert.match(props.name?.description ?? "", /Plain text: no LaTeX or Markdown\.$/);
+		}
+	});
 });
 
 describe("the notes front door (importNotes — format-agnostic)", () => {
