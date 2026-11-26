@@ -212,3 +212,32 @@ test("cancelled grading applies an occurrence-bound parked dismissal before rele
 	abortTurn(f.chat.id); release.resolve(true); assert.notEqual((await response).status, 200);
 	assert.equal(f.answer().details.kind, "plugin-question-cancelled"); assert.equal(f.answer().details.reason, "dismissed"); assert.equal(pendingPluginQuestionOf(f.saved().messages), undefined); assert.equal(isTurnRunning(f.chat.id), false);
 });
+
+test("final plugin question answer after 3+ hours post-probe appends session-resume (and sibling-only does not)", { timeout: 10000 }, async t => {
+	const fiveHoursAgo = Date.now() - 5 * 3_600_000;
+	const probeDoneCall = { ...fauxAssistantMessage([fauxToolCall("probe_done", { summary: "ok" }, { id: "pd_call_resume" })], { stopReason: "toolUse" }), id: "pd_msg", timestamp: fiveHoursAgo - 2_000 } as unknown as LhMessage;
+	const probeDoneRes = { id: "pd_res", role: "toolResult", toolCallId: "pd_call_resume", toolName: "probe_done", content: [{ type: "text", text: "ok" }], details: { ok: true }, isError: false, timestamp: fiveHoursAgo - 1_000 } as unknown as LhMessage;
+
+	const siblingFixture = await fixture(t, () => true, { sibling: true });
+	const siblingMessages = siblingFixture.saved().messages.map((m) => ({ ...m, timestamp: fiveHoursAgo }));
+	chatStore.saveMessages(siblingFixture.chat.id, [probeDoneCall, probeDoneRes, ...siblingMessages]);
+	assert.equal((await siblingFixture.post()).status, 200);
+	assert.equal(siblingFixture.saved().messages.some((m) => m.role === "custom" && m.customType === "session-resume"), false);
+
+	const singleFixture = await fixture(t, () => true);
+	const singleMessages = singleFixture.saved().messages.map((m) => ({ ...m, timestamp: fiveHoursAgo }));
+	chatStore.saveMessages(singleFixture.chat.id, [probeDoneCall, probeDoneRes, ...singleMessages]);
+	await singleFixture.settle(await singleFixture.post());
+	const saved = singleFixture.saved().messages;
+	const answerIdx = saved.findIndex((m) => m.role === "toolResult" && m.toolCallId === singleFixture.input.occurrence.toolCallId);
+	assert.ok(answerIdx >= 0);
+	assert.equal(saved[answerIdx + 1]?.role, "custom");
+	assert.equal((saved[answerIdx + 1] as Extract<LhMessage, { role: "custom" }>).customType, "session-resume");
+
+	// During probing (before probe_done), answering a plugin question after 3+ hours emits no session-resume.
+	const probeFixture = await fixture(t, () => true);
+	const probeMessages = probeFixture.saved().messages.map((m) => ({ ...m, timestamp: fiveHoursAgo }));
+	chatStore.saveMessages(probeFixture.chat.id, probeMessages);
+	await probeFixture.settle(await probeFixture.post());
+	assert.equal(probeFixture.saved().messages.some((m) => m.role === "custom" && m.customType === "session-resume"), false);
+});

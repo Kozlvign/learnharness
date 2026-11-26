@@ -15,6 +15,7 @@ import {
 	type CreateCourseInput,
 	type CreateCourseResult,
 } from "../core/course.ts";
+import { parseFilePaths } from "../core/file-paths.ts";
 import { CATALOGS } from "../core/i18n/catalog.ts";
 import { createCourseTools } from "../agent/tools/create-course.ts";
 import { resolveSourcePath } from "../agent/tools/fs-shared.ts";
@@ -23,6 +24,33 @@ import { stores } from "./stores.ts";
 import { sourceDirectory } from "./source-organization.ts";
 import { readSettings as readSettingsRecord } from "../store/settings.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
+
+// Global registry so separate Next.js route/module instances share one
+// intra-turn consent ledger (same Symbol.for pattern as compaction.ts).
+const CONSUMED_CONSENTS_KEY = Symbol.for("lh.courses.consumedConsents");
+
+function consumedConsents(): Set<string> {
+	const g = globalThis as Record<symbol, Set<string> | undefined>;
+	return (g[CONSUMED_CONSENTS_KEY] ??= new Set());
+}
+
+/** Strip surrounding quotes the learner's drag-and-drop (CommonMark
+ *  backticks via quoteFilePath) or OS "Copy as path" ("..." / '...') puts
+ *  around a file path, before resolveSourcePath checks it. */
+function unwrapBookPath(raw: string): string {
+	const trimmed = raw.trim();
+	if (!trimmed) return "";
+	const parts = parseFilePaths(trimmed);
+	if (parts.length === 1 && parts[0]!.kind === "path") return parts[0]!.path.trim();
+	if (
+		trimmed.length >= 2 &&
+		((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+			(trimmed.startsWith("'") && trimmed.endsWith("'")))
+	) {
+		return trimmed.slice(1, -1).trim();
+	}
+	return trimmed;
+}
 
 /** The folder's name in the interface language (a folder name is data:
  *  stored as the learner reads it). */
@@ -39,7 +67,7 @@ export function suggestedCoursesFolderName(): string {
 function checkedBooks(books: readonly CourseBook[]): CourseBook[] {
 	const problems: string[] = [];
 	const out = books.map((book) => {
-		const raw = book.path?.trim();
+		const raw = unwrapBookPath(book.path ?? "");
 		if (!raw) return { ...book, path: undefined };
 		try {
 			const resolved = resolveSourcePath(raw);
@@ -72,19 +100,36 @@ export async function createProposedCourse(originChatId: string, input: CreateCo
 	if (!origin) throw new Error("This course's record could not be read.");
 	const consent = courseConsentOf(origin.messages);
 	if (consent.status !== "granted") {
-		const why = {
-			none: "no course proposal was made: ask with ask_user_question and purpose \"course\" first",
-			pending: "the learner has not answered the course proposal yet",
-			declined: "the learner did not choose create on the latest course proposal",
-			used: "a course was already created from the learner's latest yes; propose again for another one",
-		}[consent.status];
+		const why = consent.status === "declined" && consent.answeredOther
+			? 'the learner answered via "Other" instead of choosing create; confirm with a new course proposal (ask_user_question with purpose "course") before creating the course'
+			: {
+				none: 'no course proposal was made: ask with ask_user_question and purpose "course" first',
+				pending: "the learner has not answered the course proposal yet",
+				declined: "the learner did not choose create on the latest course proposal",
+				used: "a course was already created from the learner's latest yes; propose again for another one",
+			}[consent.status];
 		throw new Error(`create_course refused: ${why}.`);
+	}
+	const consentKey = `${originChatId}:${consent.askCallId}`;
+	const consumed = consumedConsents();
+	if (consumed.has(consentKey)) {
+		throw new Error("create_course refused: a course was already created from the learner's latest yes; propose again for another one.");
 	}
 	const title = input.title.trim();
 	if (!title) throw new Error("create_course needs a title.");
 	const books = checkedBooks(input.books);
 
-	const chat = stores.chatStore.createChat(titleFromPrompt(title));
+	// Reserve the consent synchronously before side effects so a second
+	// create_course call in the same turn (before onFinish persists the first
+	// toolResult to chatStore) cannot create a duplicate course.
+	consumed.add(consentKey);
+	let chat: ReturnType<typeof stores.chatStore.createChat>;
+	try {
+		chat = stores.chatStore.createChat(titleFromPrompt(title));
+	} catch (error) {
+		consumed.delete(consentKey);
+		throw error;
+	}
 	// The new course owns its model from birth, as POST /api/chats stamps it.
 	const strong = readSettingsRecord()?.models?.strong;
 	if (strong?.model) {

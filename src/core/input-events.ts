@@ -36,6 +36,7 @@ import {
 	activeProblemOf,
 	activeProblemOccurrenceOf,
 	concludedByDismissalPair,
+	hasUnresolvedQuestion,
 	isSideQuestionMarker,
 	danglingQuestionOf,
 	newAnswerResult,
@@ -352,10 +353,12 @@ export function inputAppends(
 			}
 			// The result must follow its call, so the new-class marker comes
 			// after it (tail-transparent: isSessionResumeMarker) — and only
-			// after the batch's LAST answer: sibling results stay contiguous.
-			const siblingsLeft = questionCallsOf(record.messages).some((call) => call.status === "answerable" && call.toolCallId !== input.toolCallId);
+			// after the batch's LAST answer (including plugin question siblings):
+			// sibling results stay contiguous.
+			const result = newAnswerResult(input.toolCallId, pending.tool, input.answer);
+			const siblingsLeft = hasUnresolvedQuestion([...record.messages, result]);
 			const resume = siblingsLeft ? null : sessionResumeFor(record, Date.now(), { skipTrailingResults: true });
-			return [newAnswerResult(input.toolCallId, pending.tool, input.answer), ...(resume ? [resume] : [])];
+			return [result, ...(resume ? [resume] : [])];
 		}
 		case "continue":
 			return dismissalConclusion(record);
