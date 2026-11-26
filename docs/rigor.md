@@ -89,7 +89,7 @@ The other fragments changed little: `10-planning.md` says the minimal tree is th
 | `gap` | a permanent lowercase slug | with `repair` |
 | `source` | e.g. `Stewart 2.2 #31, p. 128` | on questions taken from the learner's material |
 
-The schema declares them optional so that test agents and old records stay valid; the teach tools' boundary (`teachTagProblems`) rejects a call without them, and the model retries. The learner never sees them.
+`intent` is required directly in the teacher's `quiz` and `explain` JSON Schemas (`teachQuizInputObject` / `teachExplainInputObject`), while display schemas and bare test registries keep it optional so old records stay valid. The teach tools' boundary (`teachTagProblems`) enforces the cross-field rules (`rung` on checks, `challenge` as `check` at rung 4–6, `repair` as `check` with a lowercase `gap` slug), and the model retries on any violation. The learner never sees these tags.
 
 ### Purposes on `ask_user_question`
 

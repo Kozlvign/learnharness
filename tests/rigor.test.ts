@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
+import { Value } from "typebox/value";
 import type { LhMessage } from "../src/core/native-messages.ts";
 
 assert.equal(process.env.NODE_ENV, "test");
@@ -15,8 +16,9 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-rigor-"));
 process.env.LH_DATA_DIR = path.join(scratch, "data");
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
-const { teachTagProblems, askPurposeProblems, TEACH_INTENTS } = await import("../src/core/question-core.ts");
-const { quizMechanics, createTeacherTools, createProberTools, teachQuizToolFor, teachExplainToolFor, askUserQuestionTool } = await import("../src/agent/tools.ts");
+const { teachTagProblems, askPurposeProblems, TEACH_INTENTS, teachQuizInputObject, teachExplainInputObject } = await import("../src/core/question-core.ts");
+const { quizMechanics, createTeacherTools, createProberTools, teachQuizToolFor, teachExplainToolFor, probeExplainTool, askUserQuestionTool, explainExampleBody, teachExampleTags } = await import("../src/agent/tools.ts");
+const { CONVERSATION_TOOL_NAMES } = await import("../src/agent/teacher-agent.ts");
 const { composeQuizMechanics } = await import("../components/settings/agent-section.tsx");
 const { sessionResumeFor, formatResumeGap, SESSION_RESUME_GAP_MS, needsContinuation, endsInDismissal, toLlmMessages } = await import("../src/core/native-messages.ts");
 const { inputAppends } = await import("../src/core/input-events.ts");
@@ -96,37 +98,57 @@ const quiz = (extra: Record<string, unknown>) => ({
 });
 
 describe("audit tags on teach questions (docs/rigor.md)", () => {
-	it("intent is required, rung on checks, gap with repair, gaps are slugs", () => {
+	it("intent is required, rung on checks, challenge needs check+rung 4-6, repair needs check+gap, gaps are slugs", () => {
 		assert.deepEqual(teachTagProblems({ type: "check", intent: "step", rung: 2 }), []);
 		assert.deepEqual(teachTagProblems({ type: "predict", intent: "step" }), [], "a prediction needs no rung");
 		assert.match(teachTagProblems({ type: "check", rung: 2 })[0]!, /intent is required/);
 		assert.match(teachTagProblems({ type: "check", intent: "climb" })[0]!, /rung is required on checks/);
+		assert.match(teachTagProblems({ type: "predict", intent: "challenge" })[0]!, /intent challenge must use type "check"/);
+		assert.match(teachTagProblems({ type: "check", intent: "challenge", rung: 2 })[0]!, /intent challenge needs rung 4–6/);
+		assert.deepEqual(teachTagProblems({ type: "check", intent: "challenge", rung: 4 }), []);
+		assert.match(teachTagProblems({ type: "predict", intent: "repair", gap: "x" })[0]!, /intent repair must use type "check"/);
 		assert.match(teachTagProblems({ type: "check", intent: "repair", rung: 1 })[0]!, /gap is required with intent repair/);
 		assert.match(teachTagProblems({ type: "check", intent: "review", rung: 3, gap: "Not A Slug" })[0]!, /lowercase slug/);
 		assert.deepEqual(teachTagProblems({ type: "check", intent: "repair", rung: 1, gap: "cancel-keeps-restriction" }), []);
 		assert.deepEqual([...TEACH_INTENTS], ["step", "climb", "challenge", "repair", "review", "exam", "exercise", "detour"]);
 	});
 
-	it("the teach quiz and explain refuse a call without its tags, and accept a tagged one", async () => {
+	it("the teach quiz and explain schemas require intent upfront, and execute validates cross-field rules", async () => {
 		const chat = chatStore.createChat("Rigor: tags");
 		chatStore.saveTree(chat.id, { nodes: [{ id: "limits", title: "Limits" }], edges: [], version: 1 });
 		const ctx = { chatId: chat.id, chatStore };
 		const quizTool = teachQuizToolFor(ctx);
+		assert.equal(Value.Check(teachQuizInputObject, quiz({})), false, "quiz JSON Schema requires intent");
+		assert.equal(Value.Check(teachQuizInputObject, quiz({ intent: "climb", rung: 3 })), true);
 		const refused = await quizTool.execute("c1", quiz({}) as never, undefined as never);
 		assert.equal((refused as { isError?: boolean }).isError, true);
 		assert.match(JSON.stringify(refused.content), /intent is required/);
 		const accepted = await quizTool.execute("c2", quiz({ intent: "climb", rung: 3 }) as never, undefined as never);
 		assert.doesNotMatch(JSON.stringify(accepted.content), /required/);
 		const explainTool = teachExplainToolFor(ctx);
+		assert.equal(
+			Value.Check(teachExplainInputObject, { type: "check", nodeId: "limits", question: "Prove it.", correctAnswer: "Because…" }),
+			false,
+			"explain JSON Schema requires intent",
+		);
+		assert.equal(Value.Check(teachExplainInputObject, { ...teachExampleTags, ...explainExampleBody }), true);
 		const noRung = await explainTool.execute("c3", { type: "check", nodeId: "limits", intent: "challenge", question: "Prove it.", correctAnswer: "Because…" } as never, undefined as never);
 		assert.match(JSON.stringify(noRung.content), /rung is required/);
+		const lowChallenge = await explainTool.execute("c4", { type: "check", nodeId: "limits", intent: "challenge", rung: 2, question: "Prove it.", correctAnswer: "Because…" } as never, undefined as never);
+		assert.match(JSON.stringify(lowChallenge.content), /rung 4–6/);
 	});
 
-	it("the description's example leads with type and nodeId, then the tags", () => {
+	it("both quiz and explain descriptions lead their JSON examples with type, nodeId, and audit tags, and builtins are reserved", () => {
 		const chat = chatStore.createChat("Rigor: example");
-		const desc = teachQuizToolFor({ chatId: chat.id, chatStore }).description;
-		assert.match(desc, /```json\n\{\n {2}"type": "check",\n {2}"nodeId": "chain-rule",\n {2}"intent": "climb",\n {2}"rung": 3,/);
-		assert.match(desc, /audit tags/);
+		const quizDesc = teachQuizToolFor({ chatId: chat.id, chatStore }).description;
+		assert.match(quizDesc, /```json\n\{\n {2}"type": "check",\n {2}"nodeId": "chain-rule",\n {2}"intent": "climb",\n {2}"rung": 3,/);
+		assert.match(quizDesc, /audit tags/);
+		const explainDesc = teachExplainToolFor({ chatId: chat.id, chatStore }).description;
+		assert.match(explainDesc, /```json\n\{\n {2}"type": "check",\n {2}"nodeId": "chain-rule",\n {2}"intent": "climb",\n {2}"rung": 3,/);
+		assert.ok(explainDesc.includes("a LaTeX backslash is \\\\ and a newline is \\n"));
+		assert.ok(!probeExplainTool.description.includes("nodeId"), "probe recall example carries no phase metadata");
+		assert.ok((CONVERSATION_TOOL_NAMES as readonly string[]).includes("create_course"));
+		assert.ok((CONVERSATION_TOOL_NAMES as readonly string[]).includes("anki_card"));
 	});
 });
 
