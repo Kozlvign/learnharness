@@ -501,6 +501,26 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			// UI-only (the ask-style dismissal): the synthesized conclude
 			// pair — which rides the NEXT input — carries the record's face.
 			return;
+		case "session-resume": {
+			// Fork (docs/rigor.md, rule C3): a new class — a quiet centered
+			// line, the practice-next register. The model reads the content.
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-session-resume", id: `sr_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
+		case "course-seed": {
+			// Fork (docs/rigor.md, rule R7): the proposed course's context,
+			// a collapsible card above the first message (graph-context's kin).
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-course-seed", id: `cs_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
 		case "compaction": {
 			// THE MOMENT DIVIDER (owner round 14): minimal centered small
 			// text at the compaction moment — where the user currently is

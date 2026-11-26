@@ -69,7 +69,7 @@ describe("the schema's argument order (reasoning before the pick)", () => {
 				`explanation must precede correctAnswer in the emitted schema (got: ${keys.join(", ")})`,
 			);
 			assert.deepEqual(keys, schema === quizInputSchema
-				? ["type", "nodeId", "question", "options", "multiSelect", "explanation", "correctAnswer", "details"]
+				? ["type", "nodeId", "intent", "rung", "question", "options", "multiSelect", "explanation", "correctAnswer", "details", "gap", "source"]
 				: ["question", "options", "multiSelect", "explanation", "correctAnswer", "details"]);
 		}
 	});
@@ -667,7 +667,7 @@ describe("explainInputBase / explainInputProblems (the commitment contract)", ()
 		// least, and the order doubles as the authoring order (role, target,
 		// then the question). Mirrors the quiz reorder (see above).
 		const keys = Object.keys(explainInputObject.properties);
-		assert.deepEqual(keys, ["type", "nodeId", ...Object.keys(explainInputBase.properties)]);
+		assert.deepEqual(keys, ["type", "nodeId", "intent", "rung", ...Object.keys(explainInputBase.properties), "gap", "source"]);
 	});
 
 	it("an empty commitment is the one authoring problem", () => {

@@ -1302,6 +1302,9 @@ it("explain tool call persists as a pending part; the free-text answer reveals t
 		correctAnswer: "Its small angular separation from the Sun — it never strays far from the Sun in our sky.",
 		nodeId: "planet-order",
 		type: "check", // the teach explain's role field (owner, 2026-10-09)
+		// Fork (docs/rigor.md): the real teach tools require the audit tags.
+		intent: "step",
+		rung: 3,
 	};
 	const { engine, calls } = scriptedTeacher((cs) => [
 		(context) => {

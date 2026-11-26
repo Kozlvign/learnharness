@@ -199,13 +199,16 @@ export function composeWorkerRequestConcurrency(
 	return { ok: true, settings: next };
 }
 
-/** The quizzing mechanics (owner 2026-09-27): a segmented control, not a
- *  toggle — exactly one mechanic is ever active. `explain: true` arms
- *  free-recall (explain in, quiz out); anything else is multiple choice.
- *  `quiz` itself is never written (mechanics-managed — see quizMechanics
- *  in agent/tools.ts). Pure — exported for tests. */
-export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics: "choice" | "free"): AgentSettings {
-	return { ...agent, tools: { ...agent?.tools, explain: mechanics === "free" } };
+/** The quizzing mechanics (owner 2026-09-27; fork three-state, docs/rigor.md):
+ *  a segmented control, not a toggle. `explain: true` arms free recall
+ *  (explain in, quiz out), `explain: false` multiple choice, and an absent
+ *  key is mixed (both tools; the fork's default). `quiz` itself is never
+ *  written (mechanics-managed — see quizMechanics in agent/tools.ts).
+ *  Pure — exported for tests. */
+export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics: "choice" | "free" | "mixed"): AgentSettings {
+	const { explain: _explain, ...tools } = agent?.tools ?? {};
+	if (mechanics === "mixed") return { ...agent, tools };
+	return { ...agent, tools: { ...tools, explain: mechanics === "free" } };
 }
 
 /** Compose the prober graph-tools toggle (wave 7): its own key in the
@@ -803,12 +806,14 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})()}
-				{/* The quizzing mechanic (owner 2026-09-27): segmented — exactly one
-				    of Multiple choice / Free recall is active; the choice swaps which
-				    quizzing tool BOTH agents carry (prober checks + teach checks).
-				    Persisted as agent.tools.explain; absent = Multiple choice. */}
+				{/* The quizzing mechanic (owner 2026-09-27; fork three-state):
+				    segmented — Mixed / Multiple choice / Free recall; the choice sets
+				    which quizzing tools BOTH agents carry (prober checks + teach
+				    checks). Persisted as agent.tools.explain: absent = Mixed (the
+				    fork's default), false = Multiple choice, true = Free recall. */}
 				{(() => {
-					const free = agent?.tools?.explain === true;
+					const explain = agent?.tools?.explain;
+					const mechanics = explain === true ? "free" : explain === false ? "choice" : "mixed";
 					return (
 						<SettingsRow
 							label="Quizzing"
@@ -816,8 +821,8 @@ export function AgentSection({
 							testid="quiz-mechanics-row"
 						>
 							<SettingsSegmentedControl label="Quizzing mechanics" testidPrefix="quiz-mechanics"
-								options={[{ value: "choice", label: "Multiple choice" }, { value: "free", label: "Free recall" }]}
-								value={free ? "free" : "choice"} onChange={(next) => onSectionChange(composeQuizMechanics(agent, next))} />
+								options={[{ value: "mixed", label: "Mixed" }, { value: "choice", label: "Multiple choice" }, { value: "free", label: "Free recall" }]}
+								value={mechanics} onChange={(next) => onSectionChange(composeQuizMechanics(agent, next))} />
 						</SettingsRow>
 					);
 				})()}

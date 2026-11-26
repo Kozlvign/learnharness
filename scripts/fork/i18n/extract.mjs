@@ -17,8 +17,10 @@ const SKIP_DIRS = new Set(["node_modules", "api", "subagents", "tools", "prompts
 // The catalog machinery itself (language names stay in their own language).
 const SKIP_PATHS = /(^|\/)src\/core\/i18n\//;
 // Agent prompts, tool descriptions and transcript notes are read by the
-// model, not the learner.
-const SKIP_FILES = /(\.test\.|\.d\.ts$|prompt|instructions|teacher-agent|grader|probe|tool-execute|native-messages|compaction\.ts$|coverage\.ts$|plan-tree\.ts$|question-core\.ts$|input-events\.ts$|session-markdown\.ts$|\/tools\.ts$|contracts\/(chat|jobs)\.ts$|transcript\.ts$|events-stream\.ts$|turn-runs\.ts$|agent\/attachments\.ts$)/i;
+// model, not the learner. Fork (docs/rigor.md): the course proposal's schema,
+// seed note and refusals are the model's too, and the teaching audit's
+// report is written in Portuguese for review conversations.
+const SKIP_FILES = /(\.test\.|\.d\.ts$|prompt|instructions|teacher-agent|grader|probe|tool-execute|native-messages|compaction\.ts$|coverage\.ts$|plan-tree\.ts$|question-core\.ts$|input-events\.ts$|session-markdown\.ts$|\/tools\.ts$|contracts\/(chat|jobs)\.ts$|transcript\.ts$|events-stream\.ts$|turn-runs\.ts$|agent\/attachments\.ts$|core\/course\.ts$|server\/courses\.ts$|teaching-audit\.ts$)/i;
 
 const UI_ATTRIBUTES = new Set([
 	"title", "placeholder", "aria-label", "aria-description", "aria-valuetext", "alt", "label", "hint",

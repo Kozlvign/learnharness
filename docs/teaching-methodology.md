@@ -67,6 +67,8 @@ The lesson traverses a dependency structure: facts that require other facts. Opt
 
 The plan the learner sees is a **lower-resolution view** of this tree: a structural map of the lesson at a coarse abstraction — not the literal reasoning steps. Plan nodes do not correspond one-to-one to reasoning steps or to turns of teaching. The reasoning step is the fine unit actually traversed in teaching; the plan tree is the landscape it crosses. Both exist, at different resolutions, on purpose.
 
+*(Fork note, 2026-11-26: in this fork the minimal tree is the course's **spine**, not its limit. Short connections, detours the learner chooses, and units with exercises and exams hang off it, and the second bullet above applies only to the spine. See [rigor.md](rigor.md).)*
+
 ## 8. Presentation — the clearest possible form of each step
 
 Each reasoning step should be presented in the most optimal way for absorption: the clearest, most articulate form, so the installation of the new understanding is as smooth as possible and each step lands as self-evident.

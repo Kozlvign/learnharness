@@ -169,6 +169,7 @@ describe("parseAnkiSettings", () => {
 			triggers: { wrong: false, dontKnow: true, lowConfidence: false, practiceNotSolved: true, practiceHeavyHint: false },
 			lowConfidenceMax: 0,
 			perSessionLimit: 0,
+			conceptCards: false,
 			enabledAt: "2026-10-31T12:00:00.000Z",
 		};
 		assert.deepEqual(parseAnkiSettings(value), value);

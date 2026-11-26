@@ -91,6 +91,8 @@ const MISS_TAG: Readonly<Record<AnkiCardKind, string>> = {
 	practiceHeavyHint: "heavy-hint",
 	// A card the learner asked the tutor for: no miss behind it.
 	request: "requested",
+	// Fork (docs/rigor.md): a central concept the learner holds.
+	concept: "concept",
 };
 
 /** Latin letters that Unicode does not decompose into a base + accent. */

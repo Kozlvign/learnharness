@@ -47,6 +47,7 @@ import {
 	questionCallsOf,
 	pluginQuestionCallsOf,
 	pendingProblemDismissalOf,
+	sessionResumeFor,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { isPluginQuestionJson, type JsonValue, type PluginQuestionOccurrence } from "./plugin-questions.ts";
@@ -338,14 +339,23 @@ export function inputAppends(
 			throw new ChatInputError("Plugin problem submissions require canonical server validation");
 		case "plugin-question-answer":
 			throw new ChatInputError("Plugin question answers require canonical server validation");
-		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text, input.images, input.attachments)];
+		case "text": {
+			// Fork (docs/rigor.md, rule C3): after hours away the message opens
+			// a new class; the marker sits before it, as the class's first line.
+			const resume = sessionResumeFor(record, Date.now());
+			return [...dismissalConclusion(record), ...(resume ? [resume] : []), newUserMessage(input.text, input.images, input.attachments)];
+		}
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {
 				throw new ChatInputError("answer input targets no pending question call");
 			}
-			return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+			// The result must follow its call, so the new-class marker comes
+			// after it (tail-transparent: isSessionResumeMarker) — and only
+			// after the batch's LAST answer: sibling results stay contiguous.
+			const siblingsLeft = questionCallsOf(record.messages).some((call) => call.status === "answerable" && call.toolCallId !== input.toolCallId);
+			const resume = siblingsLeft ? null : sessionResumeFor(record, Date.now(), { skipTrailingResults: true });
+			return [newAnswerResult(input.toolCallId, pending.tool, input.answer), ...(resume ? [resume] : [])];
 		}
 		case "continue":
 			return dismissalConclusion(record);

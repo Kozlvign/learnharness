@@ -24,6 +24,7 @@ Anki must be open for cards to arrive. While it is closed, new cards wait in Lea
 | A practice problem the learner moved on from or gave up | Practice problems not solved |
 | A practice problem solved only with a hint at rung R3 or above (the practice doctrine reads R3+ as "over the edge") | Practice problems solved only with strong hints |
 | When you ask the tutor for a card of something | Always (not counted in **Cards per session**) |
+| A central definition, theorem or relation, right after you answer a rung-3+ check on it correctly (fork rigor, [rigor.md](rigor.md) K1) | Cards for central concepts (not counted in **Cards per session**) |
 
 Never: careless slips, skipped questions, and preference questions (`ask_user_question`).
 
@@ -36,14 +37,15 @@ If you get an idea wrong again and a card for it already exists, no new card is 
 - **Create Anki cards from mistakes**, and the connection status with **Check again**.
 - **Deck**: default `LearnHarness::{folder}`. `{folder}` is the session's folder in your sources list (nested folders become subdecks); `{session}` is the session name; `::` separates subdecks. An empty placeholder drops its part, so sessions outside folders go to `LearnHarness`. The session itself is a tag, not a deck: Anki's manual advises against many small decks.
 - **Which mistakes**: the five settings in the table above, all on by default.
-- **Cards per session**: 5, 10 (default), 20 or no limit. Cards you ask for don't count.
+- **Cards for central concepts** (on by default): the tutor also makes a card for each central idea of the course once you show you hold it; teaching only, never in practice. They don't count toward the limit below.
+- **Cards per session**: 5, 10 (default), 20 or no limit. Cards you ask for and concept cards don't count.
 - **AnkiConnect API key**: only if you set one in AnkiConnect's config. It is stored on the server and never shown again; **Clear** removes it.
 - **Recent cards**: what happened to each mistake (waiting for the explanation, waiting for Anki, in Anki, skipped and why) and who wrote the card (the tutor or the reserve writer), with **Open in Anki** and **Remove**, and **Try again** on a card Anki refused. Removing a card that is in Anki deletes its note there, after a confirmation, and the mistake is never turned into a card again.
 
 ## In Anki
 
 - Note type **LearnHarness**, created on the first card, with the fields `LH ID` (the card's id in LearnHarness; leave it as is), `Front`, `Back`, `Why`, `Pitfall` and `Source` (session name and date). Math uses Anki's MathJax delimiters, `\(…\)` and `\[…\]`.
-- Tags: `LearnHarness`, plus `LearnHarness::phase::probe|teach|practice`, `LearnHarness::miss::wrong|dont-know|guess|not-solved|heavy-hint|requested`, `LearnHarness::type::<miss type>` for practice misses, `LearnHarness::confident-error`, and `LearnHarness::session::<session-name>_<id>`. Search `tag:LearnHarness` in Anki's browser to see them all.
+- Tags: `LearnHarness`, plus `LearnHarness::phase::probe|teach|practice`, `LearnHarness::miss::wrong|dont-know|guess|not-solved|heavy-hint|requested|concept`, `LearnHarness::type::<miss type>` for practice misses, `LearnHarness::confident-error`, and `LearnHarness::session::<session-name>_<id>`. Search `tag:LearnHarness` in Anki's browser to see them all.
 - Cards are yours once they are in Anki: deleting a session in LearnHarness leaves them there.
 
 ## How it works

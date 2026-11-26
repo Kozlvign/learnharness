@@ -4,6 +4,7 @@ import { invalidInputResult, questionResult, serverExecute } from "./tool-execut
 import {
 	askInputSchema,
 	askOptionProblems,
+	askPurposeProblems,
 	explainInputBase,
 	explainInputObject,
 	explainInputProblems,
@@ -11,6 +12,7 @@ import {
 	probeQuizInputSchema,
 	quizInputObject,
 	quizInputProblems,
+	teachTagProblems,
 } from "../core/question-core.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
 import type { JobRecord } from "../core/contracts.ts";
@@ -77,6 +79,12 @@ function prepareQuestionArguments<T extends object>(args: unknown): T {
 	return args as T;
 }
 
+/** Fork (docs/rigor.md): the audit tags' mechanics, shared by both teach
+ *  quizzing tools. */
+const TEACH_TAGS_SENTENCE =
+	"Also declare the audit tags: `intent` (required), `rung` (required on checks), `gap` (required with intent repair) " +
+	"and `source` (for questions taken from the learner's material); the learner never sees them. ";
+
 const optionLetterDescription = "When single-select options are lettered, the result’s `optionOrder` maps each displayed letter to its one-based position in your original `options` array, and each selected answer includes its displayed `letter`.";
 
 export const askUserQuestionTool: AgentTool<typeof askInputSchema> = {
@@ -90,7 +98,8 @@ export const askUserQuestionTool: AgentTool<typeof askInputSchema> = {
 	prepareArguments: prepareQuestionArguments,
 	executionMode: "sequential",
 	execute: async (_toolCallId, input) => {
-		const problems = askOptionProblems(input.options ?? []);
+		// Fork (docs/rigor.md): a purposeful ask carries its fixed values.
+		const problems = [...askOptionProblems(input.options ?? []), ...askPurposeProblems(input)];
 		if (problems.length > 0) return invalidInputResult("ask_user_question", problems);
 		return questionResult();
 	},
@@ -138,6 +147,10 @@ export const quizExampleBody = {
 	correctAnswer: "a",
 };
 
+/** The teach example's leading fields: the required pair, then the audit
+ *  tags (fork, docs/rigor.md). Exported for the description pins. */
+export const teachExampleTags = { type: "check" as const, nodeId: "chain-rule", intent: "climb" as const, rung: 3 };
+
 /** The quiz mechanics every variant shares; `delta` appends the variant's
  *  own fields (its NAME among them — the probe-phase tools self-reference
  *  as probe/recall, owner 2026-10-09). All mechanics, zero doctrine — plus
@@ -158,12 +171,13 @@ function quizDescription(delta: { name: "quiz" | "probe"; nodeId: boolean; types
 			? "Every call declares `type` — the question's role in the teaching cycle; the field's own description says when each kind fires. "
 			: "") +
 		(delta.nodeId
-			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. For off-map checks use ask_user_question. "
+			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. For off-map checks use ask_user_question. " +
+				TEACH_TAGS_SENTENCE
 			: "");
 	// Phase-correct shape: the teach example LEADS with the required pair
 	// (type, nodeId — the 2026-10-09 drop-order ruling); the probe example
 	// carries no phase metadata at all, exactly like the probe schema.
-	const example = delta.nodeId ? { type: "check" as const, nodeId: "chain-rule", ...quizExampleBody } : quizExampleBody;
+	const example = delta.nodeId ? { ...teachExampleTags, ...quizExampleBody } : quizExampleBody;
 	return (
 		base +
 		"\nExample arguments — copy the escaping exactly: inside JSON strings a LaTeX backslash is \\\\ and a newline is \\n.\n```json\n" +
@@ -188,7 +202,8 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean): string
 		"sees the question. When his answer returns, grade it strictly against the commitment — never revise it " +
 		"after seeing his words. He sees the committed answer on submit. " +
 		(nodeId
-			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. "
+			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. " +
+				TEACH_TAGS_SENTENCE
 			: "")
 	);
 }
@@ -228,7 +243,7 @@ export function teachExplainToolFor(
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
-			const problems = [...explainInputProblems(input)];
+			const problems = [...explainInputProblems(input), ...teachTagProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
 			if (problems.length > 0) return invalidInputResult("explain", problems);
@@ -298,9 +313,9 @@ export function createProberTools(
 		spawn: ctx.spawn,
 		searchAvailable: ctx.searchAvailable,
 	});
-	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the probe
-	// quiz for the probe explain — one quizzing tool at a time, whichever
-	// the settings arm. ask stays always-on. The registry keys are the
+	// Quizzing mechanics (owner 2026-09-27; fork mixed default): free
+	// recall swaps the probe quiz for the probe explain, multiple choice
+	// keeps the quiz alone, mixed arms both. ask stays always-on. The registry keys are the
 	// PHASE names (probe/recall, owner 2026-10-09) — distinct from the
 	// teach tools so the schema boundary is visible to the model.
 	const mechanics = quizMechanics(enabled);
@@ -309,7 +324,9 @@ export function createProberTools(
 	// differently-typed literals makes the whole object's type a union —
 	// unusable as Record<string, AgentTool<any>> downstream).
 	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { recall: probeExplainTool } : { probe: probeQuizTool };
+		mechanics === "free" ? { recall: probeExplainTool }
+			: mechanics === "choice" ? { probe: probeQuizTool }
+				: { probe: probeQuizTool, recall: probeExplainTool };
 	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
 	// the standard argument heal over the WHOLE registry — every tool,
 	// not just the one the latest wobble incident landed on.
@@ -380,7 +397,7 @@ export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStor
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
-			const problems = [...quizInputProblems(input)];
+			const problems = [...quizInputProblems(input), ...teachTagProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
 			if (problems.length > 0) return invalidInputResult("quiz", problems);
@@ -412,14 +429,16 @@ export interface TeacherToolContext extends PlanToolContext {
  * future toggleables (question-tool variants, …) need no change here.
  * Absent/undefined = enabled — tests and old records see today's set.
  */
-/** The quizzing mechanics (owner 2026-09-27): `tools.explain === true` in
- *  the resolved settings ⇒ free-recall checks (explain armed, quiz dropped)
- *  — anything else ⇒ multiple choice, exactly today's set. Mechanics-
- *  managed, NOT individually toggleable: quiz/explain never pass through
- *  filterEnabledTools (the 2026-09-19 wedge ruling stands — a quiz-less
- *  prober collapses its assessment flow). */
-export function quizMechanics(enabled?: EnabledTools): "choice" | "free" {
-	return enabled?.explain === true ? "free" : "choice";
+/** The quizzing mechanics (owner 2026-09-27; fork three-state, docs/rigor.md):
+ *  `tools.explain === true` ⇒ free recall (explain armed, quiz dropped);
+ *  `tools.explain === false` ⇒ multiple choice (an explicit choice); absent
+ *  ⇒ mixed, the fork's default — both quizzing tools, the teacher picks per
+ *  question. Mechanics-managed, NOT individually toggleable: quiz/explain
+ *  never pass through filterEnabledTools (the 2026-09-19 wedge ruling
+ *  stands — a quiz-less prober collapses its assessment flow). */
+export type QuizMechanics = "choice" | "free" | "mixed";
+export function quizMechanics(enabled?: EnabledTools): QuizMechanics {
+	return enabled?.explain === true ? "free" : enabled?.explain === false ? "choice" : "mixed";
 }
 
 /** Strip the mechanics keys so filterEnabledTools can never drop the
@@ -434,14 +453,16 @@ export function createTeacherTools(
 	ctx: TeacherToolContext,
 	enabled?: EnabledTools,
 ): Record<string, AgentTool<any>> {
-	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the teach
-	// quiz for the teach explain — one quizzing tool at a time, whichever
-	// the settings arm. ask stays always-on.
+	// Quizzing mechanics (owner 2026-09-27; fork mixed default): free
+	// recall swaps the teach quiz for the teach explain, multiple choice
+	// keeps the quiz alone, mixed arms both. ask stays always-on.
 	const mechanics = quizMechanics(enabled);
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
+		mechanics === "free" ? { explain: teachExplainToolFor(ctx) }
+			: mechanics === "choice" ? { quiz: teachQuizToolFor(ctx) }
+				: { quiz: teachQuizToolFor(ctx), explain: teachExplainToolFor(ctx) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return healToolRecord(
 		filterEnabledTools(

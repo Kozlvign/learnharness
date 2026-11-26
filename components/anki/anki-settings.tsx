@@ -223,6 +223,17 @@ export function AnkiSettingsView({
 							</SettingsRow>
 						))}
 					</SettingsGroup>
+					<SettingsRow
+						label="Cards for central concepts"
+						hint="The tutor also makes a card for each central definition, theorem or relation once you show you hold it. Not counted in Cards per session."
+						testid="anki-concept-cards"
+					>
+						<Toggle
+							checked={settings.conceptCards}
+							label="Cards for central concepts"
+							onChange={(on) => change({ conceptCards: on })}
+						/>
+					</SettingsRow>
 					<div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-4">
 						<SettingsRow label="Cards per session" testid="anki-limit">
 							<ThinSelect

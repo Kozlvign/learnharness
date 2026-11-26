@@ -13,12 +13,12 @@ import { ANKI_CARD_REASONS, type AnkiCardToolInput } from "./contract.ts";
 export const ankiCardToolInputSchema = Type.Object({
 	reason: Type.Union(
 		ANKI_CARD_REASONS.map((reason) => Type.Literal(reason)),
-		{ description: '"mistake": a learner mistake you have just explained. "request": the learner asked for a card.' },
+		{ description: '"mistake": a learner mistake you have just explained. "request": the learner asked for a card. "concept": a central idea the learner has just shown they hold.' },
 	),
 	question: Type.Optional(
 		Type.String({
 			description:
-				'reason "mistake": the missed question\'s text, or the practice problem\'s statement, copied as it was posed (its first words are enough). Leave it out for "request".',
+				'reason "mistake": the missed question\'s text, or the practice problem\'s statement, copied as it was posed (its first words are enough). Leave it out for "request" and "concept".',
 		}),
 	),
 	front: Type.String({ description: "The card's front: a recall question. Markdown, math in $…$." }),

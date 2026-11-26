@@ -60,6 +60,7 @@ export function parseAnkiSettings(value: unknown): AnkiSettings {
 		triggers,
 		lowConfidenceMax: integerIn(record.lowConfidenceMax, 0, 100, defaults.lowConfidenceMax),
 		perSessionLimit: integerIn(record.perSessionLimit, 0, 100, defaults.perSessionLimit),
+		conceptCards: typeof record.conceptCards === "boolean" ? record.conceptCards : defaults.conceptCards,
 		enabledAt:
 			typeof record.enabledAt === "string" && Number.isFinite(Date.parse(record.enabledAt)) ? record.enabledAt : null,
 	};

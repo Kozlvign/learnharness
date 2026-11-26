@@ -9,6 +9,8 @@ import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
 // Fork: Anki cards (docs/anki.md).
 import { AnkiCardChip } from "@/components/anki/anki-card-chip";
+// Fork: new courses (docs/rigor.md).
+import { CourseCreatedCard } from "@/components/course-cards";
 
 /**
  * Artifact renderer registry — the extension point for tool-part UI.
@@ -56,4 +58,5 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	list_sessions: ToolCallCard,
 	list_propositions: ToolCallCard,
 	anki_card: AnkiCardChip, // Fork: Anki cards (docs/anki.md).
+	create_course: CourseCreatedCard, // Fork: new courses (docs/rigor.md).
 };

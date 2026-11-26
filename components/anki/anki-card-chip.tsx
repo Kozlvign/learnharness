@@ -88,6 +88,9 @@ export function AnkiCardChipView({ input, open, record, confirming, busy, error,
 				{input.reason === "request" && (
 					<span className="rounded bg-muted px-1.5 py-0.5 normal-case tracking-normal" data-testid="anki-card-chip-request">you asked</span>
 				)}
+				{input.reason === "concept" && (
+					<span className="rounded bg-muted px-1.5 py-0.5 normal-case tracking-normal" data-testid="anki-card-chip-concept">central concept</span>
+				)}
 				<ChevronRight aria-hidden="true" className={cn("ml-auto size-3 shrink-0 opacity-50 transition-transform", open && "rotate-90")} />
 			</button>
 			{(!inline || open) && (
