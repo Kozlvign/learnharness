@@ -85,7 +85,13 @@ export interface LhMarkerMessage {
 		| "problem-dismissed"
 		| "compaction"
 		| "side-question"
-		| "side-question-told";
+		| "side-question-told"
+		// Fork (docs/rigor.md, rule C3): the learner came back after hours
+		// away — a new class of the course.
+		| "session-resume"
+		// Fork (docs/rigor.md, rule R7): a course proposed from another
+		// course: its goal, origin, background and books (message[0]).
+		| "course-seed";
 	/** The model-facing text ("" for plan blocks — UI-only). */
 	content: string;
 	display: boolean;
@@ -142,9 +148,16 @@ export function isSideQuestionMarker(m: LhMessage | AgentMessage | undefined): b
 	return type === "side-question" || type === "side-question-told";
 }
 
+/** Fork (docs/rigor.md): the new-class marker rides the learner's own
+ *  input (after an answer's result), so like a side marker it never
+ *  changes what the record's tail means. */
+export function isSessionResumeMarker(m: LhMessage | AgentMessage | undefined): boolean {
+	return (m as { role?: string } | undefined)?.role === "custom" && (m as LhMarkerMessage).customType === "session-resume";
+}
+
 function tailIgnoringSideQuestions<T>(messages: readonly T[]): readonly T[] {
 	let end = messages.length;
-	while (end > 0 && isSideQuestionMarker(messages[end - 1] as never)) end--;
+	while (end > 0 && (isSideQuestionMarker(messages[end - 1] as never) || isSessionResumeMarker(messages[end - 1] as never))) end--;
 	return end === messages.length ? messages : messages.slice(0, end);
 }
 
@@ -292,6 +305,65 @@ export function newHandoffMessage(chatId: string): LhMarkerMessage {
 		display: true,
 		details: { chatId },
 		timestamp: Date.now(),
+	};
+}
+
+// ─── a new class of the course (fork, docs/rigor.md rule C3) ────────────────
+
+/** This long without activity in a teaching chat makes the learner's next
+ *  input the start of a new class (owner choice, 2026-11-26: 3 hours). */
+export const SESSION_RESUME_GAP_MS = 3 * 60 * 60 * 1000;
+
+/** The marker's UI/audit payload. */
+export interface SessionResumeDetails {
+	/** Milliseconds since the last recorded activity. */
+	gapMs: number;
+	/** Epoch ms of that last activity. */
+	lastActivityAt: number;
+}
+
+/** The gap as the learner and the model read it: hours below two days,
+ *  whole days from there ("13 h", "3 d"). */
+export function formatResumeGap(gapMs: number): string {
+	const hours = Math.max(1, Math.round(gapMs / 3_600_000));
+	return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} d`;
+}
+
+/** The model-facing text: a fact, in the bracket convention of injected
+ *  context (the course doctrine says what to do with it). */
+export function sessionResumeText(gapMs: number): string {
+	return `[Session context] New class: the learner is back after ${formatResumeGap(gapMs)} away from this course (no activity in between). Open the class with retrieval before continuing.`;
+}
+
+/** The new-class marker for this input, or null. Teaching chats only, and
+ *  only once a class has happened (some tutor reply exists): the first
+ *  message of a chat created long ago starts the course, not a new class.
+ *  For an answer, the learner's earlier answers to the same batch are not
+ *  the activity the gap is measured from (the batch's question is): pass
+ *  `skipTrailingResults`, and call it only for the batch's last answer. */
+export function sessionResumeFor(
+	record: { messages: readonly LhMessage[]; kind?: string },
+	now: number,
+	options: { skipTrailingResults?: boolean } = {},
+): LhMarkerMessage | null {
+	if (record.kind === "practice") return null;
+	if (!record.messages.some((m) => m.role === "assistant")) return null;
+	let end = record.messages.length;
+	if (options.skipTrailingResults) while (end > 0 && record.messages[end - 1]!.role === "toolResult") end--;
+	const last = record.messages[end - 1];
+	const lastActivityAt = typeof last?.timestamp === "number" ? last.timestamp : undefined;
+	if (lastActivityAt === undefined) return null;
+	const gapMs = now - lastActivityAt;
+	if (gapMs < SESSION_RESUME_GAP_MS) return null;
+	const details: SessionResumeDetails = { gapMs, lastActivityAt };
+	return {
+		id: `sr_${now.toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
+		role: "custom",
+		customType: "session-resume",
+		content: sessionResumeText(gapMs),
+		display: true,
+		details,
+		timestamp: now,
 	};
 }
 
@@ -1005,7 +1077,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
 		if (["practice-thinking", "plugin-problem-submission", "practice-next"].includes(message.customType)) return "learner";
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told"].includes(message.customType) ? "neutral" : "unrecognizable";
+		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told", "session-resume", "course-seed"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		const pluginAnswer = readPluginQuestionAnswer(message.details);

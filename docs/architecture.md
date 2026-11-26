@@ -73,7 +73,7 @@ A side answer is **not an application turn**. [`server/side-chat.ts`](../src/ser
 | Teacher | `quiz` or `explain`, `ask_user_question`, `plan_init` | Read-only files, research/PDF/demo/visual dispatch; `show_image` |
 | Practitioner | `problem`, `conclude` | Read-only files, research/PDF dispatch; gated graph readers |
 
-Mechanic choices, settings toggles, and readiness affect availability. Practice side tools are composed separately from teaching toggles. Claude-family agents can receive `send_to_user`. Argument healing precedes semantic validation; invalid calls return errors the model can correct.
+Mechanic choices, settings toggles, and readiness affect availability. The fork's default mechanic is mixed (both quizzing tools); its teach questions carry audit tags, its asks optional purposes, and the teacher can create a proposed course (`create_course`) — see [rigor](rigor.md). Practice side tools are composed separately from teaching toggles. Claude-family agents can receive `send_to_user`. Argument healing precedes semantic validation; invalid calls return errors the model can correct.
 
 Question tools validate and execute server-side, returning a synthetic terminating placeholder. It stops a clean question pose, including mixed tool batches, but is not saved. The actual learner answer becomes the call's result later. The browser shuffles options and grades select questions; free recall exposes the committed answer for model judgment. Sibling pending questions are answered without inference until the last is resolved.
 

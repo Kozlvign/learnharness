@@ -18,6 +18,7 @@ export function ankiTutorTools(chatId: string, phase: AnkiTutorPhase): Record<st
 		phase,
 		triggers: settings.triggers,
 		lowConfidenceMax: settings.lowConfidenceMax,
+		conceptCards: settings.conceptCards,
 		create: (input, toolCallId) => createTutorCard(chatId, phase, input, toolCallId),
 	});
 }

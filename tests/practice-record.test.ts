@@ -287,7 +287,7 @@ describe("the dismissal's conclude synthesis rides the next input", () => {
 	});
 
 	it("with nothing pending, text appends only the user message", () => {
-		const appends = inputAppends({ messages: problemPose() }, { type: "text", text: "hello" });
+		const appends = inputAppends({ kind: "practice", messages: problemPose() }, { type: "text", text: "hello" });
 		assert.equal(appends.length, 1);
 	});
 });

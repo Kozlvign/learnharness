@@ -79,6 +79,7 @@ import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage} from "../core/contracts.ts";
 // Fork: Anki cards (docs/anki.md).
 import { ankiTutorTools } from "./anki/tutor-tools.ts";
+import { courseTutorTools } from "./courses.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -771,8 +772,8 @@ export async function handleChatInput(
 						// = no research tool in the teacher's registry.
 						searchAvailable,
 					},
-					// Fork: Anki cards (docs/anki.md).
-					{ ...agentOpts, extraTools: ankiTutorTools(chatId, "teach") },
+					// Fork: Anki cards (docs/anki.md) and new courses (docs/rigor.md).
+					{ ...agentOpts, extraTools: { ...ankiTutorTools(chatId, "teach"), ...courseTutorTools(chatId) } },
 				)
 			: createProberAgent(
 					{

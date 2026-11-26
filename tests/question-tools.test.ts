@@ -22,6 +22,7 @@ import {
 	probeQuizTool,
 	probeExplainTool,
 	quizExampleBody,
+	teachExampleTags,
 	teachExplainToolFor,
 	teachQuizToolFor,
 	type TeacherToolContext,
@@ -62,6 +63,8 @@ const validQuiz = {
 	explanation: "Arithmetic.",
 	type: "check",
 	nodeId: "arith",
+	intent: "step",
+	rung: 2,
 };
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -203,7 +206,7 @@ describe("the prober's quiz: no nodeId field at all", () => {
 		// Fix wave (2026-09-20): the owner ruling adds research + pdf dispatch
 		// to the probe phase's registry (demo/visual stay teach-only).
 		assert.deepEqual(Object.keys(tools).sort(), [
-			"ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research",
+			"ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "recall", "research",
 		]);
 		const probe = tools.probe as AgentTool<any>;
 		assert.equal(Value.Check(probe.parameters, { ...validQuiz, nodeId: "anything" }), true, "no session check to fail");
@@ -222,7 +225,7 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 	it("the canonical body is schema-valid and authoring-clean (never ship a broken exemplar)", () => {
 		assert.deepEqual(quizInputProblems(quizExampleBody), []);
 		assert.equal(Value.Check(probeQuizInputSchema, quizExampleBody), true);
-		const teachExample = { type: "check", nodeId: "chain-rule", ...quizExampleBody };
+		const teachExample = { ...teachExampleTags, ...quizExampleBody };
 		assert.equal(Value.Check(quizInputObject, teachExample), true);
 	});
 
@@ -243,7 +246,7 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 	it("quiz: the required pair leads the example, with the plan-id caveat", () => {
 		const chatId = newChat("Teacher: description example");
 		const desc = teachQuizToolFor({ chatId, chatStore }).description;
-		const teachExample = { type: "check", nodeId: "chain-rule", ...quizExampleBody };
+		const teachExample = { ...teachExampleTags, ...quizExampleBody };
 		assert.ok(desc.includes("```json\n" + JSON.stringify(teachExample, null, 2) + "\n```"));
 		// The 2026-10-09 drop-order ruling: type+nodeId LEAD the object —
 		// fields generated first get dropped least.
@@ -274,18 +277,18 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 		const chatId = newChat("Prober: toggles");
 		const ctx = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
 		assert.deepEqual(Object.keys(createProberTools(ctx)).sort(), [
-			"ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research",
+			"ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "recall", "research",
 		]);
 
 		const noAsk = createProberTools(ctx, { ask_user_question: false });
-		assert.deepEqual(Object.keys(noAsk).sort(), ["find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research"]);
+		assert.deepEqual(Object.keys(noAsk).sort(), ["find", "grep", "ls", "pdf", "probe", "probe_done", "read", "recall", "research"]);
 
 		// Quizzing is mechanics-managed now (owner 2026-09-27): quiz/explain
 		// NEVER pass through the generic filter — hand-written quiz:false is a
 		// no-op (the wedge danger stands: a quiz-less prober collapses its
 		// assessment flow). probe_done is never droppable — it ends the phase.
 		const noQuiz = createProberTools(ctx, { quiz: false });
-		assert.deepEqual(Object.keys(noQuiz).sort(), ["ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research"]);
+		assert.deepEqual(Object.keys(noQuiz).sort(), ["ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "recall", "research"]);
 		// The mechanic switch (owner 2026-09-27): tools.explain === true arms
 		// free-recall — explain in, quiz out, exactly one quizzing tool.
 		const free = createProberTools(ctx, { explain: true });
@@ -302,16 +305,16 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 			spawn: () => {},
 		};
 		const full = Object.keys(createTeacherTools(ctx)).sort();
-		assert.deepEqual(full, ["ask_user_question", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "show_image", "visual"]);
+		assert.deepEqual(full, ["ask_user_question", "demo", "explain", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "show_image", "visual"]);
 
 		const noResearch = Object.keys(createTeacherTools(ctx, { research: false })).sort();
-		assert.deepEqual(noResearch, ["ask_user_question", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "show_image", "visual"]);
+		assert.deepEqual(noResearch, ["ask_user_question", "demo", "explain", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "show_image", "visual"]);
 
 		// absent = enabled: an empty record and undefined behave identically
 		assert.deepEqual(
 			Object.keys(createTeacherTools(ctx, {})).sort(),
 			full,
-			"absent keys mean enabled — old records behave exactly as today",
+			"absent keys enable both quizzing tools — mixed is the default",
 		);
 
 		// The mechanic switch (owner 2026-09-27): free-recall swaps the teach
@@ -370,6 +373,8 @@ describe("teachExplainToolFor: the explain variant validates nodeId like the qui
 		correctAnswer: "It ruled out the aether — a stationary aether predicts a fringe shift, and none was seen.",
 		nodeId: "arith",
 		type: "check",
+		intent: "step",
+		rung: 3,
 	};
 
 	it("accepts a nodeId matching a tree node", async () => {

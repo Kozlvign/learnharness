@@ -242,7 +242,7 @@ export function createAnkiPipeline(deps: AnkiPipelineDeps): AnkiPipeline {
 	/** A tutor mistake card the stored record did not show the miss of when
 	 *  it was made: it carries the tutor's question hint, waiting to be linked. */
 	function unlinked(card: AnkiCardRecord, chatId: string): boolean {
-		return card.chatId === chatId && card.writtenBy === "tutor" && card.kind !== "request" && !card.covers && !!card.questionHint;
+		return card.chatId === chatId && card.writtenBy === "tutor" && card.kind !== "request" && card.kind !== "concept" && !card.covers && !!card.questionHint;
 	}
 
 	async function ingest(record: ChatRecord, misses: readonly AnkiMiss[]): Promise<void> {

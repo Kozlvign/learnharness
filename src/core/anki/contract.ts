@@ -90,6 +90,10 @@ export interface AnkiSettings {
 	lowConfidenceMax: number;
 	/** Most cards one session may create; 0 = no limit. */
 	perSessionLimit: number;
+	/** Fork (docs/rigor.md, rule K1): the tutor also makes a card for each
+	 *  central definition, theorem or relation once the learner holds it.
+	 *  On by default; outside the per-session limit. */
+	conceptCards: boolean;
 	/** ISO time the feature was last turned on, set by the server when
 	 *  `enabled` goes from false to true (clients never send it). Misses
 	 *  answered before it are ignored: turning the feature on does not turn
@@ -111,6 +115,7 @@ export const DEFAULT_ANKI_SETTINGS: AnkiSettings = Object.freeze({
 	}),
 	lowConfidenceMax: 30,
 	perSessionLimit: 10,
+	conceptCards: true,
 	enabledAt: null,
 }) as AnkiSettings;
 
@@ -205,9 +210,10 @@ export interface AnkiCardDraft {
  */
 export const ANKI_CARD_TOOL = "anki_card";
 
-/** Why the tutor makes a card: a learner mistake it has just explained, or
- *  the learner asked for a card ("make a card of this"). */
-export const ANKI_CARD_REASONS = ["mistake", "request"] as const;
+/** Why the tutor makes a card: a learner mistake it has just explained, the
+ *  learner asked for a card ("make a card of this"), or (fork, docs/rigor.md)
+ *  a central concept the learner has just shown they hold. */
+export const ANKI_CARD_REASONS = ["mistake", "request", "concept"] as const;
 export type AnkiCardReason = (typeof ANKI_CARD_REASONS)[number];
 
 export interface AnkiCardToolInput extends AnkiCardDraft {
@@ -257,10 +263,12 @@ export type AnkiWriterDecision =
 export const ANKI_CARD_STATUSES = ["waiting", "queued", "sent", "skipped", "failed", "removed"] as const;
 export type AnkiCardStatus = (typeof ANKI_CARD_STATUSES)[number];
 
-/** A ledger record's kind: the miss kind, or "request" for a card the
+/** A ledger record's kind: the miss kind, "request" for a card the
  *  learner asked the tutor for (no miss behind it; outside the per-session
- *  limit; tag `LearnHarness::miss::requested`). */
-export type AnkiCardKind = AnkiMissKind | "request";
+ *  limit; tag `LearnHarness::miss::requested`), or "concept" for a central
+ *  idea the learner holds (fork, docs/rigor.md: same treatment, tag
+ *  `LearnHarness::miss::concept`). */
+export type AnkiCardKind = AnkiMissKind | "request" | "concept";
 
 /** Who wrote the card: the tutor (anki_card) or the reserve writer. */
 export type AnkiCardAuthor = "tutor" | "writer";

@@ -37,6 +37,9 @@ export interface AnkiCardToolContext {
 	triggers: AnkiSettings["triggers"];
 	/** A right answer at or below this confidence counts as a guess. */
 	lowConfidenceMax: number;
+	/** Fork (docs/rigor.md, rule K1): cards for central concepts are on
+	 *  (teach phase only). Absent = off. */
+	conceptCards?: boolean;
 	/** Save the card (the chat handler binds createTutorCard). */
 	create(input: AnkiCardToolInput, toolCallId: string): Promise<{ text: string; details: AnkiCardToolResult }>;
 }
@@ -62,7 +65,7 @@ const PHASE_TRIGGERS: Record<AnkiCardToolContext["phase"], readonly AnkiTrigger[
 	practice: ["practiceNotSolved", "practiceHeavyHint"],
 };
 
-export function ankiCardDescription(ctx: Pick<AnkiCardToolContext, "phase" | "triggers" | "lowConfidenceMax">): string {
+export function ankiCardDescription(ctx: Pick<AnkiCardToolContext, "phase" | "triggers" | "lowConfidenceMax" | "conceptCards">): string {
 	const kinds = PHASE_TRIGGERS[ctx.phase].filter((trigger) => ctx.triggers[trigger]).map((trigger) => triggerText(trigger, ctx.lowConfidenceMax));
 	const mistakes = kinds.length > 0
 		? `The mistakes that get a card (the learner's choice): ${kinds.join("; ")}.`
@@ -76,6 +79,9 @@ export function ankiCardDescription(ctx: Pick<AnkiCardToolContext, "phase" | "tr
 		"WHEN:",
 		`- reason "mistake": right after you have explained the correct idea behind a learner mistake, in that same reply; one card per idea. ${mistakes}${probe} Put the missed question (or the practice problem's statement) in question, copied as it was posed (its first words are enough): it ties the card to the mistake.`,
 		'- reason "request": when the learner asks you for a card of something.',
+		...(ctx.phase === "teach" && ctx.conceptCards
+			? ['- reason "concept": right after the learner answers a check at rung 3 or above correctly on a central definition, theorem or relation of the course (the ideas later units stand on, not minor facts); one card per idea, never twice for the same idea.']
+			: []),
 		"Never before you have explained the idea, never for a careless slip, a skipped question or an answer to ask_user_question. Do not announce the card at length: the chat shows it. A refusal (the mistake already has a card, the session's card limit, cards turned off) comes back as the result: accept it.",
 		"",
 		"HOW:",

@@ -112,7 +112,7 @@ export function ankiRecordsByMiss(ledger: AnkiLedger): Map<string, AnkiCardRecor
 /** Counts toward the per-session limit: a mistake card of its own, in Anki
  *  or on its way. Cards the learner asked for are outside the limit. */
 export function ankiCountsTowardLimit(card: AnkiCardRecord): boolean {
-	return (card.status === "queued" || card.status === "sent") && !card.duplicateOf && card.kind !== "request";
+	return (card.status === "queued" || card.status === "sent") && !card.duplicateOf && card.kind !== "request" && card.kind !== "concept";
 }
 
 /** The session's mistake cards so far. */
@@ -195,6 +195,9 @@ export async function createTutorCard(
 		pitfall: (input.pitfall ?? "").trim(),
 	};
 	if (!draft.front || !draft.back) return refuse("A card needs a front and a back; no card was made.");
+	// Fork (docs/rigor.md, rule K1): concept cards are the learner's choice.
+	if (input.reason === "concept" && !settings.conceptCards) return refuse("The learner turned off cards for central concepts; no card was made.");
+	if (input.reason === "concept" && phase !== "teach") return refuse("Concept cards are made while teaching only; no card was made.");
 	const record: ChatRecord | null = chatStore.getChat(chatId);
 	if (!record) return refuse(`Chat not found: ${chatId}`);
 
@@ -249,7 +252,7 @@ export async function createTutorCard(
 			phase,
 			// An unlinked mistake reads as "wrong" until the pipeline links it
 			// to its miss (which brings the miss's kind, class and targets).
-			kind: input.reason === "request" ? "request" : "wrong",
+			kind: input.reason === "request" ? "request" : input.reason === "concept" ? "concept" : "wrong",
 			missClass: null,
 			confident: false,
 			targets: [],

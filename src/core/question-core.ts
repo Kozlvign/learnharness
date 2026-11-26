@@ -247,6 +247,111 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
 		"(arrives collapsed behind the Check your understanding reveal)."
 });
 
+// ─── teaching audit tags (fork, docs/rigor.md) ──────────────────────────────
+//
+// Every teach question declares WHY it is posed and how hard it is, so a
+// session can be audited against the rigor doctrine afterwards (the
+// teaching-audit fold reads these from the persisted call args). The
+// learner never sees them. Mechanics only — when to use each intent and
+// rung lives in the teacher's demand/gaps/course doctrine.
+
+/** Why a teach question is posed (docs/rigor.md). */
+export const TEACH_INTENTS = ["step", "climb", "challenge", "repair", "review", "exam", "exercise", "detour"] as const;
+export type TeachIntent = (typeof TEACH_INTENTS)[number];
+
+/** The rung ladder's bounds (docs/rigor.md, rule E2). */
+export const TEACH_RUNG_MIN = 1;
+export const TEACH_RUNG_MAX = 6;
+
+/** A gap slug: the plan-slug grammar (lowercase words joined by - or _). */
+const GAP_SLUG_RE = /^[a-z0-9]+([_-][a-z0-9]+)*$/;
+
+// Optional in the schema, REQUIRED at the teach tools' boundary
+// (teachTagProblems): bare test agents and old records stay valid.
+const teachIntentField = Type.Optional(Type.Union(TEACH_INTENTS.map((intent) => Type.Literal(intent)), {
+	description:
+		"REQUIRED — why you pose this question, as a bare word (no quotes): step = a new reasoning step (its prediction " +
+		"or its check); climb = a harder question on an idea the learner just got right; challenge = the problem that " +
+		"closes a plan node; repair = fixing a gap the learner just showed (set gap); review = retrieval of earlier " +
+		"material (a new class's opening, a delayed re-check); exam = a unit exam problem; exercise = an end-of-section " +
+		"exercise (set source when it comes from the learner's material); detour = a question inside a detour the " +
+		"learner chose to explore.",
+}));
+
+const teachRungField = Type.Optional(
+	Type.Integer({
+		minimum: TEACH_RUNG_MIN,
+		maximum: TEACH_RUNG_MAX,
+		description:
+			"The difficulty rung, 1–6 (REQUIRED on checks): 1 recognize; 2 same template, other numbers; 3 transfer to a " +
+			"new function, context or representation; 4 several steps integrating earlier ideas; 5 justify, derive or " +
+			"prove; 6 construct an example or counterexample, find the error, or solve with no method indicated.",
+	}),
+);
+
+const teachGapField = Type.Optional(
+	Type.String({
+		description:
+			"The gap this question repairs, re-checks or reviews, as a permanent lowercase slug (e.g. " +
+			"cancel-keeps-restriction). REQUIRED with intent repair; reuse the same slug every time the gap comes back.",
+	}),
+);
+
+const teachSourceField = Type.Optional(
+	Type.String({
+		description:
+			'Where the question comes from in the learner\'s material, e.g. "Stewart 2.2 #31, p. 128" — set it on every ' +
+			"exercise or example taken from a source; omit it for questions you wrote yourself.",
+	}),
+);
+
+/** The audit tags' cross-field rules, run at the teach tools' call
+ *  boundary (execute) — the schema carries the shapes. Empty = clean. */
+export function teachTagProblems(input: { type?: unknown; intent?: unknown; rung?: unknown; gap?: unknown }): string[] {
+	const problems: string[] = [];
+	if (input.intent === undefined) {
+		problems.push(`intent is required — declare why you pose this question (${TEACH_INTENTS.join(", ")}).`);
+	}
+	if (normalizeQuizType(input.type) === "check" && input.rung === undefined) {
+		problems.push(`rung is required on checks — declare the difficulty rung (${TEACH_RUNG_MIN}–${TEACH_RUNG_MAX}) this check sits at.`);
+	}
+	const gap = typeof input.gap === "string" ? input.gap.trim() : undefined;
+	if (input.intent === "repair" && !gap) {
+		problems.push("gap is required with intent repair — name the gap being repaired with a permanent lowercase slug (e.g. cancel-keeps-restriction).");
+	}
+	if (gap !== undefined && gap.length > 0 && !GAP_SLUG_RE.test(gap)) {
+		problems.push(`gap \`${gap}\` must be a lowercase slug (a-z, 0-9, joined by hyphens or underscores), reused verbatim whenever the gap comes back.`);
+	}
+	return problems;
+}
+
+/** The course decisions an ask can carry (docs/rigor.md): each purpose
+ *  fixes its options' values, so the decision is auditable and the
+ *  server can act on it (create_course reads the `course` answer). */
+export const ASK_PURPOSE_VALUES = {
+	detour: ["explore", "save", "skip"],
+	reading: ["read-first", "direct"],
+	course: ["create", "skip"],
+} as const;
+export type AskPurpose = keyof typeof ASK_PURPOSE_VALUES;
+export const ASK_PURPOSES = Object.keys(ASK_PURPOSE_VALUES) as AskPurpose[];
+
+/** The purpose rule: a purposeful ask offers exactly its fixed values
+ *  (any order, labels free), single-select. Empty = clean. */
+export function askPurposeProblems(input: { purpose?: unknown; options?: Array<{ value?: string }>; multiSelect?: boolean }): string[] {
+	if (input.purpose === undefined) return [];
+	const expected = ASK_PURPOSE_VALUES[input.purpose as AskPurpose] as readonly string[] | undefined;
+	if (!expected) return [`purpose must be one of ${ASK_PURPOSES.join(", ")}.`];
+	const values = (input.options ?? []).map((option) => option.value ?? "");
+	const same = values.length === expected.length && expected.every((value) => values.includes(value));
+	const problems: string[] = [];
+	if (!same) {
+		problems.push(`purpose ${String(input.purpose)} needs exactly the options with values ${expected.join(", ")} (labels in the learner's language).`);
+	}
+	if (input.multiSelect === true) problems.push(`purpose ${String(input.purpose)} is a single choice — drop multiSelect.`);
+	return problems;
+}
+
 
 /** The TEACH-side quiz object. The required pair leads the property
  *  order (owner, 2026-10-09): glm-5.3 dropped `type`/`nodeId` on long
@@ -264,7 +369,13 @@ export const quizInputObject = Type.Object({
 			"one node for as many turns as the understanding needs — one reasoning step at a time, never rush forward. " +
 			"For off-map checks use ask_user_question.",
 	}),
+	// Fork: the audit tags (docs/rigor.md) follow the required pair —
+	// declared before the content, so they are generated early.
+	intent: teachIntentField,
+	rung: teachRungField,
 	...quizInputBase.properties,
+	gap: teachGapField,
+	source: teachSourceField,
 });
 
 /** The PROBE-side quiz declaration: the shared authoring contract, no
@@ -333,7 +444,12 @@ export const explainInputObject = Type.Object({
 			"one node for as many turns as the understanding needs — one reasoning step at a time, never rush forward. " +
 			"For off-map checks use ask_user_question.",
 	}),
+	// Fork: the audit tags (docs/rigor.md), exactly as the teach quiz's.
+	intent: teachIntentField,
+	rung: teachRungField,
 	...explainInputBase.properties,
+	gap: teachGapField,
+	source: teachSourceField,
 });
 
 /** The DISPLAY parse for persisted explain calls (tool-parts.ts): the
@@ -383,6 +499,16 @@ export const askInputSchema = Type.Object({
 	),
 	multiSelect: Type.Optional(
 		Type.Boolean({ description: "Set to true to allow multiple answers to the same question." }),
+	),
+	// Fork (docs/rigor.md): a course decision, auditable by its fixed values.
+	purpose: Type.Optional(
+		Type.Union(ASK_PURPOSES.map((purpose) => Type.Literal(purpose)), {
+			description:
+				"Optional — set it only when this question is one of these course decisions; its options must then carry " +
+				"exactly these values (labels in the learner's language): detour = offer a detour (explore, save, skip); " +
+				"reading = offer to read a source section before the lesson (read-first, direct); course = propose a " +
+				"separate new course (create, skip).",
+		}),
 	),
 });
 // Ask's option sanity (labels non-empty, values distinct — ask is not

@@ -130,6 +130,9 @@ import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 // Fork: Anki cards (docs/anki.md).
 import { AnkiQuestionCard } from "@/components/anki/anki-question-card";
+// Fork: the course's classes and proposed courses (docs/rigor.md).
+import { CourseSeedCard } from "@/components/course-cards";
+import { formatResumeGap, type SessionResumeDetails, type CourseSeedDetails } from "@/src/core";
 // Fork: side panel (docs/side-panel.md).
 import { materialElement, SidePanel, useSidePanel } from "@/components/side-panel";
 import { SidePanelContext, type SidePanelControls } from "@/components/side-panel-context";
@@ -1920,6 +1923,23 @@ export function Chat({
 											}
 											case "data-practice-thinking":
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+											case "data-course-seed":
+												// Fork (docs/rigor.md): the proposed course's context note.
+												return <CourseSeedCard key={pi} data={part.data as CourseSeedDetails} />;
+											case "data-session-resume": {
+												// Fork (docs/rigor.md, rule C3): a new class — the quiet
+												// centered line of the practice-next register.
+												const gapMs = (part.data as SessionResumeDetails | null)?.gapMs ?? 0;
+												return (
+													<div
+														key={pi}
+														data-testid="session-resume-line"
+														className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground"
+													>
+														{`New class · ${formatResumeGap(gapMs)} since the last activity`}
+													</div>
+												);
+											}
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.

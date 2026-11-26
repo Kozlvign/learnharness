@@ -27,6 +27,7 @@ export function ankiCardStatusLabel(card: AnkiCardRecord): string {
  *  field and was the writer's; null before the card is written. */
 export function ankiCardAuthorLabel(card: AnkiCardRecord): string | null {
 	if (card.kind === "request") return "you asked";
+	if (card.kind === "concept") return "central concept";
 	if (card.writtenBy === "tutor") return "by the tutor";
 	if (card.writtenBy === "writer" || card.card) return "by the reserve writer";
 	return null;
