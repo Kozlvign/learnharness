@@ -10,6 +10,8 @@ import type { PluginCallPurpose, PluginModelSpec } from "../core/plugin-agents.t
 import type { PluginInference, PluginInferenceOptions, PluginInferenceRequest } from "../core/plugins.ts";
 import type { ModelCatalogResponse } from "../core/contracts/models.ts";
 import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
+import { CLAUDE_PROVIDER } from "../core/contracts/claude.ts";
+import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts";
 import { providerKeyMissing } from "../core/settings.ts";
 import { validatePluginInferenceOptions as optionsFor } from "../core/plugin-validation.ts";
 
@@ -26,7 +28,8 @@ export interface PluginInferenceAdapter {
 	onUsage(model: PluginModelSpec, usage: Usage): void;
 }
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-const subscription = (provider: string) => provider === "chatgpt" || NATIVE_SUBSCRIPTIONS.some((p) => p.logicalId === provider);
+// Fork: the Claude and Antigravity connections bill the user's plan too, and report dispatch the same way.
+const subscription = (provider: string) => provider === "chatgpt" || provider === CLAUDE_PROVIDER || provider === ANTIGRAVITY_PROVIDER || NATIVE_SUBSCRIPTIONS.some((p) => p.logicalId === provider);
 function abortError(): Error { return new DOMException("Plugin inference cancelled or disabled", "AbortError"); }
 function check(signal: AbortSignal): void { if (signal.aborted) throw abortError(); }
 /** Cancel the wait, not just the eventual transport. Removes listeners on every path. */
@@ -204,12 +207,17 @@ export function createPluginInference(
 		// Claude Code must not retain/reuse a live process for a one-shot request.
 		const sessionId = model.provider === CLAUDE_CODE_PROVIDER ? undefined : randomUUID();
 		const source = engine.streamFn(engine.model, normalizeContext(request.context), { ...options, signal: combined, ...(sessionId ? { sessionId } : {}) });
-		for await (const event of source) {
-			if (event.type === "done" || event.type === "error") {
-				const message = event.type === "done" ? event.message : event.error;
-				if (message.stopReason !== "aborted" && usageWasAdmitted(message.usage)) onUsage(model, message.usage);
+		try {
+			for await (const event of source) {
+				if (event.type === "done" || event.type === "error") {
+					const message = event.type === "done" ? event.message : event.error;
+					if (message.stopReason !== "aborted" && usageWasAdmitted(message.usage)) onUsage(model, message.usage);
+				}
+				yield event;
 			}
-			yield event;
+		} finally {
+			// Fork: an Antigravity session is a whole agy process; a one-shot call keeps none alive.
+			if (sessionId && model.provider === ANTIGRAVITY_PROVIDER) void import("../agent/antigravity/session.ts").then((sessions) => sessions.releaseTaggedSessions(sessionId)).catch(() => {});
 		}
 	};
 	return {

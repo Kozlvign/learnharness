@@ -7,12 +7,19 @@ import { markUnadmittedUsage, type SubscriptionDispatchLifecycle } from "./subsc
 import { capturePreparedBackgroundPayload } from "./background-capture.ts";
 import { CLAUDE_PROVIDER } from "../core/contracts/claude.ts";
 import { claudeError } from "./claude/stream.ts";
+import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts";
+import { antigravityError } from "./antigravity/stream.ts";
 
 export function nativeSubscriptionError(provider: string, message: string): string {
 	if (provider === CLAUDE_PROVIDER) {
 		if (/background/i.test(message)) return claudeError("background");
 		if (/catalog|model|stale|changed/i.test(message)) return claudeError("signed-out");
 		return claudeError("failed");
+	}
+	if (provider === ANTIGRAVITY_PROVIDER) {
+		if (/background/i.test(message)) return antigravityError("background");
+		if (/catalog|model|stale|changed/i.test(message)) return antigravityError("signed-out");
+		return antigravityError("failed");
 	}
 	const label = NATIVE_SUBSCRIPTIONS.find((p) => p.logicalId === provider)?.label ?? "Subscription";
 	const suffix = " No API-key fallback was used.";

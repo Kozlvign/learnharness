@@ -18,6 +18,8 @@
 
 > **This fork** adds a **Claude** connection: use Claude models with your Claude Pro or Max plan through your own, unmodified [Claude Code](https://code.claude.com), the way [T3 Code](https://github.com/pingdotgg/t3code) does. Claude Code handles sign-in and keeps the credentials; LearnHarness never sees them. Windows installers are on [this fork's releases](https://github.com/Kozlvign/learnharness/releases) and update from there. See [docs/claude.md](docs/claude.md).
 >
+> It also adds an **Antigravity** connection: use the models of your Google Antigravity plan (Gemini, and the Claude and GPT models it includes) with your Google account, through Google's official, unmodified Antigravity CLI, which LearnHarness can download for you. See [docs/antigravity.md](docs/antigravity.md).
+>
 > It also adds a **Brazilian Portuguese** interface and tutor: **Settings → General → Language**. See [docs/language.md](docs/language.md).
 >
 > And **images in messages**: paste a screenshot, drop a photo of your handwritten work or pick files, and the tutor reads them. See [docs/images.md](docs/images.md).

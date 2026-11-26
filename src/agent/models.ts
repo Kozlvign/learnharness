@@ -26,6 +26,9 @@ import { nativeSubscriptionStream } from "./subscription-stream.ts";
 import { CLAUDE_PROVIDER } from "../core/contracts/claude.ts";
 import { claudeModel } from "./claude/catalog.ts";
 import { claudeStream } from "./claude/stream.ts";
+import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts";
+import { antigravityModel } from "./antigravity/catalog.ts";
+import { antigravityStream } from "./antigravity/stream.ts";
 import { withTutorLanguage } from "./language.ts";
 import { withAttachedImages } from "./attachments.ts";
 
@@ -163,7 +166,8 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 	const models: Models = piModels();
 	const nativeId = nativeSubscriptionId(spec.provider);
 	const claude = spec.provider === CLAUDE_PROVIDER;
-	const registeredModel = spec.provider === "chatgpt" ? chatGPTModel(spec.id) : claude ? claudeModel(spec.id) : nativeId ? nativeSubscriptionModel(spec.provider, spec.id) : models.getModel(spec.provider, spec.id);
+	const antigravity = spec.provider === ANTIGRAVITY_PROVIDER;
+	const registeredModel = spec.provider === "chatgpt" ? chatGPTModel(spec.id) : claude ? claudeModel(spec.id) : antigravity ? antigravityModel(spec.id) : nativeId ? nativeSubscriptionModel(spec.provider, spec.id) : models.getModel(spec.provider, spec.id);
 	const custom = providerSource?.isCustom(spec.provider) ?? false;
 	// Custom endpoint owners authorize image attempts independently of sparse
 	// discovery metadata. Never promote the registered/catalog capabilities.
@@ -212,7 +216,7 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 				return current.streamSimple(customModel, withAttachedImages(withTutorLanguage(context), customModel), { ...requestOptions, reasoning: currentLevel === "off" ? undefined : currentLevel });
 			}
 			const purpose = typeof background === "function" ? background : () => background;
-			const stream = spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : claude ? claudeStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
+			const stream = spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : claude ? claudeStream(purpose, lifecycle) : antigravity ? antigravityStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
 			// Direct Anthropic auth is resolved per request. Keep full replay: Pi's
 			// message-thread fingerprint does not include that rotating credential.
 			const wireModel = requestModel.provider === "anthropic" && requestModel.api === "anthropic-messages"

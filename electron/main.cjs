@@ -244,9 +244,13 @@ function startServer(port) {
 		serverProcess = child;
 		chatgptChild = attachChatGPTChild(child, chatgpt);
 		subscriptionChild = attachSubscriptionChild(child, subscriptions);
-		// Fork (Claude connection): the server announces Claude Code sessions.
+		// Fork (Claude and Antigravity connections): the server announces
+		// native CLI sessions, each connection on its own channel.
 		child.on("message", (message) => {
-			if (message?.channel === "lh:claude" && message.op === "graceful") child.lhGraceful = true;
+			if ((message?.channel === "lh:claude" || message?.channel === "lh:antigravity") && message.op === "graceful") {
+				child.lhGraceful = true;
+				(child.lhGracefulChannels ??= new Set()).add(message.channel);
+			}
 		});
 		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
 		child.stdout.on("data", fwd);
@@ -298,13 +302,13 @@ function killServer() {
 			}
 		}, 3000);
 	};
-	// Fork (Claude connection): a server running Claude Code sessions gets a
-	// moment to pause them cleanly. It also exits on its own if this process
-	// goes first. Other servers stop immediately, as before.
+	// Fork (Claude and Antigravity connections): a server running native CLI
+	// sessions gets a moment to pause them cleanly. It also exits on its own
+	// if this process goes first. Other servers stop immediately, as before.
 	let asked = false;
 	try {
 		if (child.lhGraceful && child.connected) {
-			child.send({ channel: "lh:claude", op: "shutdown" });
+			for (const channel of child.lhGracefulChannels ?? ["lh:claude"]) child.send({ channel, op: "shutdown" });
 			asked = true;
 		}
 	} catch {
