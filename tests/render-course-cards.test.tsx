@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
-import { CourseCreatedCard, CourseSeedCard } from "../components/course-cards.tsx";
+import { CourseCreatedCard, CourseSeedCard, CourseSeedEmptyState } from "../components/course-cards.tsx";
 import { CATALOGS } from "../src/core/i18n/catalog.ts";
 import { createTranslator } from "../src/core/i18n/translator.ts";
 
@@ -57,20 +57,55 @@ describe("proposed-course cards", () => {
 		}
 	});
 
-	it("the seed card is collapsed by default, with the origin course", () => {
+	it("the seed card is collapsed by default, links back to the origin course, and supports defaultOpen", () => {
 		const html = renderToStaticMarkup(<CourseSeedCard data={seed} />);
 		assert.match(html, /Proposed course/);
+		assert.match(html, /From/);
 		assert.match(html, /Calculus - Limits/);
+		assert.match(html, /href="\/chat\/chat_x"/);
+		assert.match(html, /Open origin/);
 		assert.doesNotMatch(html, /course-seed-body/);
 		assert.deepEqual(interfaceTexts(html).filter((t) => !known(t)), []);
+
+		const expanded = renderToStaticMarkup(<CourseSeedCard data={seed} defaultOpen />);
+		assert.match(expanded, /course-seed-body/);
+		assert.match(expanded, /Provar os teoremas de limite/);
+		assert.deepEqual(interfaceTexts(expanded).filter((t) => !known(t)), []);
+
+		const emptyState = renderToStaticMarkup(<CourseSeedEmptyState onStart={() => {}} />);
+		assert.match(emptyState, /Ready to start this course/);
+		assert.match(emptyState, /Start course/);
+		assert.deepEqual(interfaceTexts(emptyState).filter((t) => !known(t)), []);
 	});
 
 	it("its labels translate", () => {
-		for (const text of ["Proposed course", "Proposed in", "Goal", "Why", "What you already hold", "When", "It can start now", "Better after the course it came from", "Books", "No file yet", "New course created", "Creating the course…", "The course was not created.", "Suggested courses"]) {
+		for (const text of [
+			"Proposed course",
+			"From",
+			"Open origin",
+			"Proposed in",
+			"Goal",
+			"Why",
+			"What you already hold",
+			"When",
+			"It can start now",
+			"Better after the course it came from",
+			"Books",
+			"No file yet",
+			"New course created",
+			"Creating the course…",
+			"The course was not created.",
+			"Suggested courses",
+			"Ready to start this course",
+			"Start course",
+			"The tutor already has the goal, your background, and the book list. Start whenever you are ready, or write below to adjust anything first.",
+		]) {
 			assert.ok(known(text), text);
 		}
 		assert.equal(pt("New class · 13 h since the last activity"), "Nova aula · 13 h desde a última atividade");
 		assert.equal(pt("Mixed"), "Misto");
 		assert.equal(pt("Suggested courses"), "Cadeiras sugeridas");
+		assert.equal(pt("Open origin"), "Abrir origem");
+		assert.equal(pt("Start course"), "Começar cadeira");
 	});
 });

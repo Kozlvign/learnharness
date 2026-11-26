@@ -607,8 +607,8 @@ export function ankiTranscriptExcerpt(
 const MATCH_MIN = 12;
 
 /** Case, width, Markdown and math markup, and spacing do not tell two
- *  copies of a question apart. */
-function matchText(text: string): string {
+ *  copies of a question or concept apart. */
+export function ankiMatchText(text: string): string {
 	return text
 		.normalize("NFKC")
 		.toLowerCase()
@@ -621,6 +621,40 @@ function matchText(text: string): string {
 		.trim();
 }
 
+function conceptTokens(text: string): Set<string> {
+	const folded = ankiMatchText(text)
+		.normalize("NFKD")
+		.replace(/\p{M}+/gu, "");
+	return new Set(folded.match(/[\p{L}\p{N}]+/gu) ?? []);
+}
+
+const CONCEPT_JACCARD_MIN = 0.85;
+const CONCEPT_TOKENS_MIN = 3;
+const CONCEPT_BACK_EXACT_MIN = 20;
+
+/** Whether two concept cards cover the same central idea: exact normalized
+ *  front, near-identical word set on the front (≥ 0.85 Jaccard on ≥ 3 tokens),
+ *  or exact normalized back (when substantial enough not to be a bare symbol). */
+export function ankiSameConcept(
+	a: { front: string; back: string },
+	b: { front: string; back: string },
+): boolean {
+	const frontA = ankiMatchText(a.front);
+	const frontB = ankiMatchText(b.front);
+	if (frontA !== "" && frontA === frontB) return true;
+	const tokensA = conceptTokens(a.front);
+	const tokensB = conceptTokens(b.front);
+	if (tokensA.size >= CONCEPT_TOKENS_MIN && tokensB.size >= CONCEPT_TOKENS_MIN) {
+		let shared = 0;
+		for (const token of tokensA) if (tokensB.has(token)) shared++;
+		const union = tokensA.size + tokensB.size - shared;
+		if (union > 0 && shared / union >= CONCEPT_JACCARD_MIN) return true;
+	}
+	const backA = ankiMatchText(a.back);
+	const backB = ankiMatchText(b.back);
+	return backA.length >= CONCEPT_BACK_EXACT_MIN && backA === backB;
+}
+
 /**
  * The miss a tutor card's question hint names: the hint and the question
  * (or practice problem statement) match exactly, or one contains the other
@@ -628,11 +662,11 @@ function matchText(text: string): string {
  * side. The most recent miss wins. null = none, or the hint is empty.
  */
 export function ankiMatchMiss(misses: readonly AnkiMiss[], hint: string | null | undefined): AnkiMiss | null {
-	const wanted = matchText(hint ?? "");
+	const wanted = ankiMatchText(hint ?? "");
 	if (wanted === "") return null;
 	let best: AnkiMiss | null = null;
 	for (const miss of misses) {
-		const question = matchText(miss.question);
+		const question = ankiMatchText(miss.question);
 		if (question === "") continue;
 		const matched =
 			question === wanted ||

@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
-import { derivePlanStatuses, derivedNodeStatus, type PlanTree, type PlanToolResult } from "../src/core/contracts.ts";
+import { derivePlanStatuses, derivePlanStatusesLh, derivedNodeStatus, type PlanTree, type PlanToolResult } from "../src/core/contracts.ts";
 import { createTree, emptyTree, PlanTreeError } from "../src/core/plan-tree.ts";
 import { planTools } from "../src/agent/tools/plan.ts";
 import { parseMermaidPlan } from "../src/agent/tools/mermaid-plan.ts";
@@ -449,5 +449,59 @@ describe("derivePlanStatuses: tagged explain calls move the map like quiz calls"
 		]);
 		assert.equal(st.current, "b");
 		assert.deepEqual([...st.visited], ["a"]);
+	});
+
+	it("review and exam questions do not regress current once a node is active (both UI and native folds)", () => {
+		const bigTree: PlanTree = {
+			nodes: [
+				{ id: "a", title: "A" },
+				{ id: "b", title: "B" },
+				{ id: "c", title: "C" },
+			],
+			edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }],
+			version: 1,
+		};
+		const uiMessages = [
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", intent: "step" } }),
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "b", intent: "step" } }),
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", intent: "review" } }),
+			msg({ type: "tool-explain", state: "output-available", input: { nodeId: "a", intent: "exam" } }),
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", intent: '"review"' } }),
+		];
+		const ui = derivePlanStatuses(bigTree, uiMessages);
+		assert.equal(ui.current, "b");
+		assert.deepEqual([...ui.visited], ["a"]);
+
+		const nativeCall = (id: string, name: string, args: Record<string, unknown>) => ({
+			id,
+			role: "assistant",
+			content: [{ type: "toolCall", id: `tc_${id}`, name, arguments: args }],
+			stopReason: "toolUse",
+			timestamp: 1,
+		});
+		const native = derivePlanStatusesLh(bigTree, [
+			nativeCall("m1", "quiz", { nodeId: "a", intent: "step" }),
+			nativeCall("m2", "quiz", { nodeId: "b", intent: "step" }),
+			nativeCall("m3", "quiz", { nodeId: "a", intent: "review" }),
+			nativeCall("m4", "explain", { nodeId: "a", intent: "exam" }),
+			nativeCall("m5", "quiz", { nodeId: "a", intent: '"review"' }),
+		] as never);
+		assert.equal(native.current, "b");
+		assert.deepEqual([...native.visited], ["a"]);
+
+		// When no node is current yet, a review/exam still positions the map.
+		const opening = derivePlanStatuses(bigTree, [
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", intent: "review" } }),
+		]);
+		assert.equal(opening.current, "a");
+		assert.equal(opening.visited.size, 0);
+
+		// A deliberate repair or step back to an earlier node still moves current.
+		const repaired = derivePlanStatuses(bigTree, [
+			...uiMessages,
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", intent: "repair" } }),
+		]);
+		assert.equal(repaired.current, "a");
+		assert.deepEqual([...repaired.visited].sort(), ["a", "b"]);
 	});
 });

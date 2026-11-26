@@ -131,7 +131,8 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
 // Fork: Anki cards (docs/anki.md).
 import { AnkiQuestionCard } from "@/components/anki/anki-question-card";
 // Fork: the course's classes and proposed courses (docs/rigor.md).
-import { CourseSeedCard } from "@/components/course-cards";
+import { CourseSeedCard, CourseSeedEmptyState } from "@/components/course-cards";
+import { useLanguage } from "@/components/i18n/language-provider";
 import { formatResumeGap, type SessionResumeDetails, type CourseSeedDetails } from "@/src/core";
 // Fork: side panel (docs/side-panel.md).
 import { materialElement, SidePanel, useSidePanel } from "@/components/side-panel";
@@ -1696,6 +1697,20 @@ export function Chat({
 	};
 
 	usePluginShortcutPage(`/chat/${encodeURIComponent(chatId)}`, captureActionContext);
+	const { settings: language } = useLanguage();
+	const isFreshSeededCourse =
+		!busy &&
+		messages.length === 1 &&
+		messages[0]?.role === "user" &&
+		messages[0].parts.length === 1 &&
+		messages[0].parts[0]?.type === "data-course-seed";
+	const startSeededCourse = () => {
+		const tutorLocale = language
+			? (language.tutor === "app" ? language.ui : language.tutor)
+			: (typeof document !== "undefined" ? document.documentElement.lang : "en");
+		const opener = tutorLocale === "pt-BR" ? "Vamos começar esta cadeira." : "Let's start this course.";
+		void prepareText(opener);
+	};
 
 	return (
 		<ChatActionsContext.Provider
@@ -1925,7 +1940,7 @@ export function Chat({
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
 											case "data-course-seed":
 												// Fork (docs/rigor.md): the proposed course's context note.
-												return <CourseSeedCard key={pi} data={part.data as CourseSeedDetails} />;
+												return <CourseSeedCard key={pi} data={part.data as CourseSeedDetails} defaultOpen={isFreshSeededCourse} />;
 											case "data-session-resume": {
 												// Fork (docs/rigor.md, rule C3): a new class — the quiet
 												// centered line of the practice-next register.
@@ -2136,6 +2151,9 @@ export function Chat({
 									)}
 								</Fragment>
 							))}
+							{isFreshSeededCourse && (
+								<CourseSeedEmptyState onStart={startSeededCourse} disabled={compacting || submissionRunner.occupied} />
+							)}
 
 							{/* THE placeholder, ACTION-gated (owner, optimistic round
 							    3, 2026-10-02): spinner + shimmered Thinking… from the

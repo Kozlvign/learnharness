@@ -85,13 +85,30 @@ function checkedBooks(books: readonly CourseBook[]): CourseBook[] {
 	return out;
 }
 
-/** Find the root-level folder by name, or create it; returns its id. */
-function suggestedCoursesFolderId(name: string): string {
-	const existing = sourceDirectory.read().organization.folders.find((folder) => folder.parentId === null && folder.name === name);
-	if (existing) return existing.id;
-	const created = sourceDirectory.change({ action: "create-folder", name, parentId: null });
+/** All localized names for the suggested-courses root folder across catalogs,
+ *  so switching interface language reuses the existing folder instead of
+ *  creating a duplicate root folder. */
+function knownSuggestedCoursesFolderNames(): Set<string> {
+	const names = new Set<string>([SUGGESTED_COURSES_FOLDER]);
+	for (const catalog of Object.values(CATALOGS)) {
+		const translated = catalog?.[SUGGESTED_COURSES_FOLDER];
+		if (typeof translated === "string" && translated.trim()) names.add(translated.trim());
+	}
+	return names;
+}
+
+/** Find the root-level suggested-courses folder (preferring the current
+ *  interface language, then any known localized alias), or create it. */
+function ensureSuggestedCoursesFolder(preferredName: string): { id: string; name: string } {
+	const roots = sourceDirectory.read().organization.folders.filter((folder) => folder.parentId === null);
+	const exact = roots.find((folder) => folder.name === preferredName);
+	if (exact) return { id: exact.id, name: exact.name };
+	const aliases = knownSuggestedCoursesFolderNames();
+	const existing = roots.find((folder) => aliases.has(folder.name));
+	if (existing) return { id: existing.id, name: existing.name };
+	const created = sourceDirectory.change({ action: "create-folder", name: preferredName, parentId: null });
 	if (!created.createdFolderId) throw new Error("The suggested-courses folder could not be created.");
-	return created.createdFolderId;
+	return { id: created.createdFolderId, name: preferredName };
 }
 
 /** Create the course the learner agreed to in `originChatId`. */
@@ -149,9 +166,8 @@ export async function createProposedCourse(originChatId: string, input: CreateCo
 			origin: { chatId: originChatId, title: origin.title },
 		}),
 	]);
-	const folder = suggestedCoursesFolderName();
-	const folderId = suggestedCoursesFolderId(folder);
-	sourceDirectory.change({ action: "move", kind: "source", id: chat.id, parentId: folderId });
+	const folder = ensureSuggestedCoursesFolder(suggestedCoursesFolderName());
+	sourceDirectory.change({ action: "move", kind: "source", id: chat.id, parentId: folder.id });
 	// The sidebar re-reads its folders on this event; the chat's own creation
 	// event fired before the placement existed.
 	emit("chats-changed", {});
@@ -159,7 +175,7 @@ export async function createProposedCourse(originChatId: string, input: CreateCo
 		ok: true,
 		chatId: chat.id,
 		title: chat.title,
-		folder,
+		folder: folder.name,
 		withFiles: books.filter((book) => book.path).map((book) => book.title),
 		withoutFiles: books.filter((book) => !book.path).map((book) => book.title),
 	};
