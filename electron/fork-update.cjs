@@ -11,19 +11,26 @@
  *   installed build lacks. Only commits that change the app count: the fork's
  *   scripts, docs and README are left out, as the release script does. Patch-
  *   equivalent commits are left out too, so rebasing the fork onto upstream
- *   does not list again what is already installed. Checking never builds.
- * - Updating starts `release-windows.ps1 -ForkOnly` in that checkout, outside
- *   this process, so it keeps running when the app closes. The script reports its
- *   step and its outcome in files under the state folder: a later launch
- *   picks up a build in progress, a finished build or a failure.
- * - A finished build installs when the app quits, or at once on a restart
- *   (the installer's --force-run opens the new version).
+ *   does not list again what is already installed.
+ * - A check that finds changes starts the build on its own:
+ *   `release-windows.ps1 -ForkOnly -InstalledCommit -StageDir -SkipChecks` in
+ *   that checkout, outside this process, so it keeps running when the app
+ *   closes. The script reports its step and its outcome in files under the
+ *   state folder: a later launch picks up a build in progress, a finished
+ *   build or a failure. A build that failed is not started again on its own
+ *   for the same main (failed.json); Update retries it, and so does a newer
+ *   main. A build cut short (the computer turned off) starts again.
+ * - The script copies the new version beside the installed app (<app>.staged)
+ *   and reports it ready before it makes the installer and publishes the
+ *   release. Restart now, or quitting, starts electron/fork-install.ps1,
+ *   which swaps the folders once the app has exited (install.json holds its
+ *   outcome for the next launch).
  *
  * Nothing here can stop the app: every failure becomes a status.
  */
 "use strict";
 
-const { execFile, spawn } = require("node:child_process");
+const { execFile, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -31,7 +38,7 @@ const MAX_LISTED = 30;
 const FETCH_TIMEOUT_MS = 90_000;
 const GIT_TIMEOUT_MS = 30_000;
 const POLL_MS = 2_000;
-// A build takes about 7 minutes. An older recorded run is treated as gone,
+// A build takes a few minutes. An older recorded run is treated as gone,
 // even if its process id now belongs to another program.
 const RUN_STALE_MS = 2 * 60 * 60 * 1000;
 // The release script's rule for what changes the app.
@@ -40,8 +47,11 @@ const FIELD = "\x1f";
 const COMMIT_FORMAT = `--format=%H${FIELD}%cI${FIELD}%s`;
 const SHA = /^[0-9a-f]{40}$/i;
 // From these a check may run; otherwise the panel shows a build or its outcome.
-const CHECKABLE = new Set(["idle", "up-to-date", "check-failed", "available"]);
+const CHECKABLE = new Set(["idle", "up-to-date", "check-failed", "available", "build-failed"]);
 const STARTABLE = new Set(["available", "build-failed"]);
+// Shipped in the app (inside the asar, which PowerShell cannot read: it is
+// copied to the state folder to run).
+const INSTALL_SCRIPT = path.join(__dirname, "fork-install.ps1");
 
 /** Where this build came from, or null when it cannot update itself. */
 function forkUpdateSource({ packageJsonPath, env = {}, platform, exists = fs.existsSync, readFile = fs.readFileSync }) {
@@ -73,7 +83,7 @@ function parseCommits(text) {
 	return commits;
 }
 
-/** The environment for git and the release script, without Electron's own switches. */
+/** The environment for git and the scripts, without Electron's own switches. */
 function childEnv(env) {
 	const out = {};
 	for (const [key, value] of Object.entries(env)) {
@@ -82,26 +92,55 @@ function childEnv(env) {
 	return out;
 }
 
-/** Starts the release script outside this process and resolves its process
- * id. Not a detached spawn: a PowerShell started detached has no console and
- * exits without running anything. Not a plain child either: it would die with
- * the app. Start-Process gives the script its own hidden console, which its
- * git, npm and node children share, so no window opens. The values travel in
- * environment variables, so no quoting reaches -Command. */
-function startHidden({ powershell, args, cwd, env }) {
-	const command = "$p = Start-Process -FilePath $env:LH_RELEASE_FILE -ArgumentList $env:LH_RELEASE_ARGS -WorkingDirectory $env:LH_RELEASE_CWD -WindowStyle Hidden -PassThru; [Console]::Out.Write($p.Id)";
-	return new Promise((resolve, reject) => {
-		execFile(powershell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command], {
+function powershellPath(env) {
+	return path.join(env.SystemRoot || env.SYSTEMROOT || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+
+/** A script started outside this process: not a detached spawn (a PowerShell
+ * started detached has no console and exits without running anything), not a
+ * plain child (it would die with the app). Start-Process gives it its own
+ * hidden console, which its git, npm and node children share, so no window
+ * opens. The values travel in environment variables, so no quoting reaches
+ * -Command. Paths never contain quotes or end in a backslash here. */
+function hiddenStart({ powershell, args, cwd, env }) {
+	return {
+		file: powershell,
+		args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+			"$p = Start-Process -FilePath $env:LH_RELEASE_FILE -ArgumentList $env:LH_RELEASE_ARGS -WorkingDirectory $env:LH_RELEASE_CWD -WindowStyle Hidden -PassThru; [Console]::Out.Write($p.Id)"],
+		options: {
 			windowsHide: true,
 			timeout: 30_000,
-			// Paths never contain quotes or end in a backslash here.
 			env: { ...env, LH_RELEASE_FILE: powershell, LH_RELEASE_ARGS: args.map((arg) => `"${arg}"`).join(" "), LH_RELEASE_CWD: cwd },
-		}, (error, stdout, stderr) => {
-			const pid = Number.parseInt(String(stdout).trim(), 10);
-			if (!error && Number.isInteger(pid) && pid > 0) return resolve(pid);
-			reject(error ?? new Error(`no process id (${String(stderr).trim() || String(stdout).trim()})`));
+		},
+	};
+}
+
+function startedPid(stdout, stderr) {
+	const pid = Number.parseInt(String(stdout).trim(), 10);
+	if (Number.isInteger(pid) && pid > 0) return pid;
+	throw new Error(`no process id (${String(stderr ?? "").trim() || String(stdout).trim()})`);
+}
+
+/** Starts the release script; resolves its process id. */
+function startHidden(call) {
+	const { file, args, options } = hiddenStart(call);
+	return new Promise((resolve, reject) => {
+		execFile(file, args, options, (error, stdout, stderr) => {
+			if (error) return reject(error);
+			try {
+				resolve(startedPid(stdout, stderr));
+			} catch (failure) {
+				reject(failure);
+			}
 		});
 	});
+}
+
+/** The same, synchronously: the install script starts while the app quits,
+ * when nothing asynchronous finishes any more. */
+function startHiddenSync(call) {
+	const { file, args, options } = hiddenStart(call);
+	return startedPid(execFileSync(file, args, { ...options, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }), "");
 }
 
 function processAlive(pid) {
@@ -129,6 +168,8 @@ function remove(file) {
 	}
 }
 
+const lowerSha = (value) => (typeof value === "string" && SHA.test(value) ? value.toLowerCase() : null);
+
 /** Why a git call failed, as a code the panel turns into a sentence. */
 function gitError(error, fetching) {
 	if (error?.code === "ENOENT") return "git-missing";
@@ -139,22 +180,30 @@ function gitError(error, fetching) {
 function createForkUpdate({
 	source,
 	stateDir,
+	// The folder the app runs from; the new version is staged beside it.
+	installDir,
 	notify = () => {},
 	log = () => {},
 	git = "git",
 	env = process.env,
-	spawnProcess = spawn,
 	startScript = startHidden,
+	startInstall = startHiddenSync,
 	isAlive = processAlive,
 	now = Date.now,
 	every = setInterval,
 	stopEvery = clearInterval,
+	// Whether a check that finds changes starts the build on its own.
+	auto = true,
+	pid = process.pid,
 }) {
 	const files = {
 		run: path.join(stateDir, "run.json"),
 		progress: path.join(stateDir, "progress.json"),
 		result: path.join(stateDir, "result.json"),
+		failed: path.join(stateDir, "failed.json"),
+		install: path.join(stateDir, "install.json"),
 	};
+	const stageDir = `${installDir}.staged`;
 	let state = {
 		status: "idle",
 		installed: { sha: source.commit, date: null },
@@ -170,7 +219,6 @@ function createForkUpdate({
 	};
 	let checking = null;
 	let poll = null;
-	let installer = null;
 	let installing = false;
 
 	const snapshot = () => JSON.parse(JSON.stringify(state));
@@ -210,6 +258,20 @@ function createForkUpdate({
 		}
 	}
 
+	/** The fork's main has changes: offered, unless this main already failed to build. */
+	function offer(next) {
+		const failed = readJson(files.failed);
+		if (failed && failed.target === next.latest.sha) {
+			return set({ ...next, status: "build-failed", error: failed.error ?? "script", message: failed.message ?? null, log: failed.log ?? null });
+		}
+		set({ ...next, status: "available" });
+	}
+
+	function upToDate(base) {
+		remove(files.failed);
+		set({ ...base, status: "up-to-date", changes: [], changeCount: 0 });
+	}
+
 	async function compare() {
 		try {
 			await runGit(["fetch", "--quiet", "--no-tags", "origin", "main"], FETCH_TIMEOUT_MS);
@@ -220,10 +282,10 @@ function createForkUpdate({
 		const latest = await readCommit("origin/main");
 		if (!latest) return set({ status: "check-failed", error: "git" });
 		const installed = await readCommit(source.commit);
-		const base = { latest, installed: installed ?? { sha: source.commit, date: null }, error: null, message: null };
-		if (latest.sha === source.commit) return set({ ...base, status: "up-to-date", changes: [], changeCount: 0 });
+		const base = { latest, installed: installed ?? { sha: source.commit, date: null }, error: null, message: null, log: null };
+		if (latest.sha === source.commit) return upToDate(base);
 		// The checkout no longer has the installed commit: only the difference is known.
-		if (!installed) return set({ ...base, status: "available", changes: [], changeCount: 0 });
+		if (!installed) return offer({ ...base, changes: [], changeCount: 0 });
 		let changes;
 		try {
 			changes = parseCommits(await runGit(
@@ -234,11 +296,11 @@ function createForkUpdate({
 			log(`fork update: comparing failed: ${error?.detail || error?.message || error}`);
 			return set({ status: "check-failed", error: gitError(error, false) });
 		}
-		if (changes.length === 0) return set({ ...base, status: "up-to-date", changes: [], changeCount: 0 });
-		set({ ...base, status: "available", changes: changes.slice(0, MAX_LISTED), changeCount: changes.length });
+		if (changes.length === 0) return upToDate(base);
+		offer({ ...base, changes: changes.slice(0, MAX_LISTED), changeCount: changes.length });
 	}
 
-	/** Compares the installed commit with the fork's main. Never builds. */
+	/** Compares the installed commit with the fork's main, and builds what it finds. */
 	function check() {
 		if (checking) return checking;
 		if (!CHECKABLE.has(state.status)) return Promise.resolve(snapshot());
@@ -248,8 +310,9 @@ function createForkUpdate({
 				log(`fork update: check failed: ${error?.message ?? error}`);
 				set({ status: "check-failed", error: "git" });
 			})
-			.then(() => {
+			.then(async () => {
 				checking = null;
+				if (auto && state.status === "available") await start();
 				return snapshot();
 			});
 		return checking;
@@ -265,29 +328,68 @@ function createForkUpdate({
 		poll = null;
 	}
 
+	/** The staged copy of this commit is complete, where the app expects it. */
+	function stagedReady(commit) {
+		if (!commit) return false;
+		const marker = readJson(path.join(stageDir, ".lh-build.json"));
+		return lowerSha(marker?.commit) === commit && fs.existsSync(path.join(stageDir, "LearnHarness.exe"));
+	}
+
+	/** A failure the next check keeps showing for the same main, until Update. */
+	function fail(error, { message = null, log: logFile = null, target = null } = {}) {
+		remove(files.result);
+		remove(files.run);
+		try {
+			fs.mkdirSync(stateDir, { recursive: true });
+			fs.writeFileSync(files.failed, JSON.stringify({ target, error, message, log: logFile }));
+		} catch {
+			/* only the automatic retry is affected */
+		}
+		set({ status: "build-failed", step: null, error, message, log: logFile });
+	}
+
 	/** A build ended: ready to install, nothing to install, or failed. */
 	function finish(result, progress) {
 		stopWatching();
-		remove(files.run);
+		const run = readJson(files.run);
 		remove(files.progress);
+		const target = lowerSha(run?.target);
 		if (!result) {
+			remove(files.run);
 			log("fork update: the build stopped before it finished");
 			return set({ status: "build-failed", step: null, error: "interrupted", message: null, log: progress?.log ?? null });
 		}
 		if (!result.ok) {
-			remove(files.result);
 			log(`fork update: the build failed: ${result.message ?? "no message"}`);
-			return set({ status: "build-failed", step: null, error: "script", message: result.message ?? null, log: result.log ?? null });
+			return fail("script", { message: result.message ?? null, log: result.log ?? null, target });
 		}
-		const commit = typeof result.commit === "string" ? result.commit.toLowerCase() : null;
-		if (!result.built || !commit || commit === source.commit || typeof result.installer !== "string" || !fs.existsSync(result.installer)) {
-			// The script found nothing that changes the app since its last release.
+		const commit = lowerSha(result.commit);
+		if (!commit) {
+			// Never "up to date" without the script saying which version that is.
+			log("fork update: the release script ended without a version to install");
+			return fail("nothing", { log: result.log ?? null, target });
+		}
+		if (commit === source.commit) {
 			remove(files.result);
-			return set({ status: "up-to-date", step: null, error: null, message: null, log: null, changes: [], changeCount: 0 });
+			remove(files.run);
+			remove(files.failed);
+			return set({ status: "up-to-date", step: null, error: null, message: null, log: null, changes: [], changeCount: 0, latest: state.installed });
 		}
-		installer = result.installer;
+		if (!installDir || typeof result.staged !== "string" || path.resolve(result.staged).toLowerCase() !== path.resolve(stageDir).toLowerCase() || !stagedReady(commit)) {
+			// Its files are gone: the next check builds it again.
+			remove(files.result);
+			remove(files.run);
+			log(`fork update: version ${result.version} is not in ${stageDir}`);
+			return set({ status: "build-failed", step: null, error: "install", message: null, log: result.log ?? null });
+		}
+		remove(files.failed);
 		log(`fork update: version ${result.version} (${commit.slice(0, 7)}) is ready`);
-		set({ status: "ready", step: null, error: null, message: null, log: result.log ?? null, version: result.version ?? null, latest: { sha: commit, date: null } });
+		// run.json stays: it keeps the list of changes for a later launch.
+		set({
+			status: "ready", step: null, error: null, message: null, log: result.log ?? null, version: result.version ?? null,
+			latest: { sha: commit, date: null },
+			...(Array.isArray(run?.changes) ? { changes: run.changes, changeCount: Number.isInteger(run.changeCount) ? run.changeCount : run.changes.length } : {}),
+		});
 	}
 
 	function refresh() {
@@ -315,72 +417,102 @@ function createForkUpdate({
 	/** Starts the release script; it outlives the app. */
 	async function start() {
 		if (!STARTABLE.has(state.status)) return snapshot();
+		if (!installDir) {
+			set({ status: "build-failed", step: null, error: "start", message: null, log: null });
+			return snapshot();
+		}
+		const target = state.latest?.sha ?? null;
 		// Building at once, so a second click does not start a second run.
 		set({ status: "building", step: null, error: null, message: null, log: null, version: null });
 		try {
 			fs.mkdirSync(stateDir, { recursive: true });
 			for (const file of Object.values(files)) remove(file);
-			const powershell = path.join(env.SystemRoot || env.SYSTEMROOT || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 			const pid = await startScript({
-				powershell,
+				powershell: powershellPath(env),
 				args: [
 					"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
 					"-File", path.join(source.checkout, "scripts", "fork", "release-windows.ps1"),
 					"-ForkOnly", "-ResultFile", files.result, "-ProgressFile", files.progress,
+					"-InstalledCommit", source.commit, "-StageDir", stageDir, "-SkipChecks",
 				],
 				cwd: source.checkout,
 				env: childEnv(env),
 			});
-			fs.writeFileSync(files.run, JSON.stringify({ pid, started: new Date(now()).toISOString(), from: source.commit }));
+			fs.writeFileSync(files.run, JSON.stringify({
+				pid, started: new Date(now()).toISOString(), from: source.commit, target,
+				changes: state.changes, changeCount: state.changeCount,
+			}));
 			log(`fork update: release script started (pid ${pid})`);
 			watch();
 		} catch (error) {
 			log(`fork update: the release script failed to start: ${error?.message ?? error}`);
-			set({ status: "build-failed", step: null, error: "start", message: null, log: null });
+			fail("start", { target });
 		}
 		return snapshot();
 	}
 
-	function launchInstaller(args) {
-		if (state.status !== "ready" || !installer || installing) return false;
+	function launchInstall(relaunch) {
+		if (state.status !== "ready" || installing) return false;
+		const commit = state.latest?.sha ?? null;
 		try {
-			if (!fs.existsSync(installer)) throw new Error(`${installer} is missing`);
-			const child = spawnProcess(installer, args, { cwd: path.dirname(installer), detached: true, stdio: "ignore", env: childEnv(env) });
-			child.on?.("error", (error) => log(`fork update: the installer failed to start: ${error?.message ?? error}`));
-			if (!child.pid) throw new Error("no process id");
-			child.unref?.();
+			if (!stagedReady(commit)) throw new Error(`${stageDir} is missing or incomplete`);
+			fs.mkdirSync(stateDir, { recursive: true });
+			const script = path.join(stateDir, "install.ps1");
+			fs.writeFileSync(script, fs.readFileSync(INSTALL_SCRIPT));
+			remove(files.install);
+			const args = [
+				"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+				"-File", script, "-InstallDir", installDir, "-StagedDir", stageDir, "-Commit", commit,
+				"-ResultFile", files.install, "-ParentPid", String(pid),
+			];
+			// An empty argument would not survive the trip through Start-Process.
+			if (state.version) args.push("-Version", state.version);
+			if (relaunch) args.push("-Relaunch");
+			const child = startInstall({ powershell: powershellPath(env), args, cwd: stateDir, env: childEnv(env) });
 			installing = true;
-			log(`fork update: installing version ${state.version}`);
+			log(`fork update: installing version ${state.version} (pid ${child})`);
 			return true;
 		} catch (error) {
-			log(`fork update: the installer failed to start: ${error?.message ?? error}`);
+			log(`fork update: the install failed to start: ${error?.message ?? error}`);
 			remove(files.result);
-			installer = null;
+			remove(files.run);
 			set({ status: "build-failed", error: "install", message: null });
 			return false;
 		}
 	}
 
-	/** Restart now: the installer replaces the app and opens the new version. */
-	const installNow = () => launchInstaller(["--updated", "/S", "--force-run"]);
+	/** Restart now: the new version replaces the app and opens. */
+	const installNow = () => launchInstall(true);
 	/** On quit: install without opening the app again. */
-	const installOnQuit = () => launchInstaller(["--updated", "/S"]);
+	const installOnQuit = () => launchInstall(false);
 
-	// A previous launch may have left a build running, finished or failed.
+	// A previous launch may have left a build running, finished or failed, or an install.
 	try {
+		const install = readJson(files.install);
 		const result = readJson(files.result);
 		const run = readJson(files.run);
-		if (result?.ok && typeof result.commit === "string" && result.commit.toLowerCase() === source.commit) {
+		if (install && !install.ok && lowerSha(install.commit) !== source.commit) {
+			remove(files.install);
+			log(`fork update: installing the new version failed: ${install.message ?? "no message"}`);
+			fail("swap", { message: install.message ?? null, target: lowerSha(run?.target) ?? lowerSha(install.commit) });
+		} else if ((install?.ok && lowerSha(install.commit) === source.commit) || (result?.ok && lowerSha(result.commit) === source.commit)) {
 			// That build is the one running now.
+			if (install?.ok) log(`fork update: version ${install.version ?? source.commit.slice(0, 7)} installed`);
 			for (const file of Object.values(files)) remove(file);
 		} else if (result) {
+			remove(files.install);
 			finish(result, null);
 		} else if (run) {
+			remove(files.install);
 			if (runAlive(run)) {
-				set({ status: "building", step: readJson(files.progress)?.step ?? null, log: readJson(files.progress)?.log ?? null });
+				const progress = readJson(files.progress);
+				set({
+					status: "building", step: progress?.step ?? null, log: progress?.log ?? null,
+					...(Array.isArray(run.changes) ? { changes: run.changes, changeCount: Number.isInteger(run.changeCount) ? run.changeCount : run.changes.length } : {}),
+				});
 				watch();
 			} else finish(null, readJson(files.progress));
-		}
+		} else remove(files.install);
 	} catch (error) {
 		log(`fork update: reading the last build failed: ${error?.message ?? error}`);
 	}
@@ -388,4 +520,4 @@ function createForkUpdate({
 	return { state: snapshot, check, start, installNow, installOnQuit, dispose: stopWatching };
 }
 
-module.exports = { createForkUpdate, forkUpdateSource, parseCommits, startHidden, MAX_LISTED };
+module.exports = { createForkUpdate, forkUpdateSource, parseCommits, startHidden, startHiddenSync, MAX_LISTED };

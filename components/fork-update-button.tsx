@@ -3,10 +3,10 @@
 /**
  * Fork (update button, docs/claude.md): the icon beside Settings. Opening the
  * app checks the fork's main for changes the installed build lacks
- * (electron/fork-update.cjs); the icon then shows a dot and its panel lists
- * them. Update rebuilds the app with the release script while the learner
- * keeps studying; the new version installs on Restart now or when the app
- * closes. Builds that cannot update themselves show nothing.
+ * (electron/fork-update.cjs) and builds them on its own with the release
+ * script while the learner keeps studying; the panel lists them. The new
+ * version installs on Restart now or when the app closes, and the icon shows
+ * a dot once it is ready. Builds that cannot update themselves show nothing.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -30,7 +30,7 @@ export type ForkUpdateState = {
 	/** The release script's current step, as it names it. */
 	step?: string | null;
 	version?: string | null;
-	error?: "git-missing" | "timeout" | "fetch" | "git" | "start" | "interrupted" | "script" | "install" | null;
+	error?: "git-missing" | "timeout" | "fetch" | "git" | "start" | "interrupted" | "script" | "nothing" | "install" | "swap" | null;
 	/** The release script's own message when it failed. */
 	message?: string | null;
 	log?: string | null;
@@ -53,15 +53,19 @@ const ERRORS: Record<NonNullable<ForkUpdateState["error"]>, string> = {
 	start: "The release script didn't start.",
 	interrupted: "The update stopped before it finished.",
 	script: "The release script stopped with an error.",
-	install: "The new version's installer is missing. Update again to build it.",
+	nothing: "The release script ended without a new version to install.",
+	install: "The new version's files are missing. Update again to build them.",
+	swap: "The new version couldn't replace the installed one.",
 };
 
 const STEPS: Record<string, string> = {
+	"Waiting for the previous update": "Waiting for the previous update to finish publishing…",
 	"Syncing with the fork": "Downloading the changes from the fork's main…",
 	"Installing dependencies": "Installing dependencies…",
 	"Translating new interface text": "Translating new interface text…",
 	Checking: "Checking the new version…",
-	Building: "Building the new version. This takes a few minutes.",
+	Building: "Building the new version…",
+	"Copying the new version": "Copying the new version…",
 	Publishing: "Publishing the release on GitHub…",
 };
 
@@ -105,6 +109,7 @@ export function forkUpdateView(state: ForkUpdateState) {
 				tooltip: "Preparing the update…", title: "Preparing the update…", busy: true,
 				description: (state.step && STEPS[state.step]) || "Starting the release script…",
 				note: "You can keep studying. It goes on even if you close LearnHarness.",
+				version: state.latest && state.latest.sha !== state.installed?.sha ? `${describe(state.installed)} → ${describe(state.latest)}` : undefined,
 			};
 		case "ready":
 			return {
@@ -164,7 +169,8 @@ export function ForkUpdateButton({ bridge = typeof window === "undefined" ? unde
 
 	if (!bridge || !state || state.status === "unsupported") return null;
 	const view = forkUpdateView(state);
-	const changes = state.status === "available" ? state.changes ?? [] : [];
+	// What the new version brings, from the check until it is installed.
+	const changes = state.status === "available" || state.status === "building" || state.status === "ready" ? state.changes ?? [] : [];
 	const hidden = (state.changeCount ?? 0) - changes.length;
 	const run = (action: () => Promise<ForkUpdateState | undefined>) => { void action().then(accept).catch(() => {}); };
 
