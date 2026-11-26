@@ -3,6 +3,7 @@
 import type { CallUsage, ChatRecord, JobRecord, TurnUsage } from "./contracts.ts";
 import { NATIVE_SUBSCRIPTIONS } from "./contracts/subscriptions.ts";
 import { CLAUDE_LABEL, CLAUDE_PROVIDER } from "./contracts/claude.ts";
+import { ANTIGRAVITY_LABEL, ANTIGRAVITY_PROVIDER } from "./contracts/antigravity.ts";
 
 export type CallPricer = (usage: Partial<CallUsage>, model: string) => number | null;
 export interface SessionPricing {
@@ -20,6 +21,7 @@ export function isChatGPTPlan(model: string | undefined): boolean {
 export function subscriptionLabel(model: string | undefined): string | undefined {
 	if (isChatGPTPlan(model)) return "ChatGPT";
 	if (model?.startsWith(`${CLAUDE_PROVIDER}:`)) return CLAUDE_LABEL;
+	if (model?.startsWith(`${ANTIGRAVITY_PROVIDER}:`)) return ANTIGRAVITY_LABEL;
 	return NATIVE_SUBSCRIPTIONS.find((p) => model?.startsWith(`${p.logicalId}:`))?.label;
 }
 export function isSubscriptionModel(model: string | undefined): boolean { return subscriptionLabel(model) !== undefined; }

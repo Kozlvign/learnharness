@@ -59,6 +59,7 @@ export * from "./model-catalog.ts";
 export { refreshModelCatalog } from "./remote-model-catalog.ts";
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { claudeResponse } from "./claude-http.ts";
+export { antigravityResponse } from "./antigravity-http.ts";
 export { languageResponse } from "./language-http.ts";
 export { attachmentResponse, uploadAttachmentResponse } from "./attachments-http.ts";
 export { dictationModelResponse, dictationResponse, dictationSessionEndResponse, dictationSessionResponse, dictationSessionsResponse } from "./dictation-http.ts";

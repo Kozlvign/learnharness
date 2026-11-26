@@ -3,26 +3,31 @@ import { nativeSubscriptionId, nativeSubscriptionConnected, nativeSubscriptionBa
 import type { AdmissionScope } from "./subscription-request-cycle.ts";
 import { CLAUDE_PROVIDER } from "../core/contracts/claude.ts";
 import { claudeBackgroundAllowed, claudeConnected, claudeScopeCurrent, onClaudeChange } from "./claude/connection.ts";
+import { ANTIGRAVITY_PROVIDER } from "../core/contracts/antigravity.ts";
+import { antigravityBackgroundAllowed, antigravityConnected, antigravityScopeCurrent, onAntigravityChange } from "./antigravity/connection.ts";
 
-export function isSubscriptionProvider(provider: string | undefined): boolean { return provider === "chatgpt" || provider === CLAUDE_PROVIDER || !!(provider && nativeSubscriptionId(provider)); }
+export function isSubscriptionProvider(provider: string | undefined): boolean { return provider === "chatgpt" || provider === CLAUDE_PROVIDER || provider === ANTIGRAVITY_PROVIDER || !!(provider && nativeSubscriptionId(provider)); }
 export function subscriptionConnected(provider: string): boolean {
 	if (provider === "chatgpt") return chatGPTConnected();
 	if (provider === CLAUDE_PROVIDER) return claudeConnected();
+	if (provider === ANTIGRAVITY_PROVIDER) return antigravityConnected();
 	const native = nativeSubscriptionId(provider); return !!native && nativeSubscriptionConnected(native);
 }
 /** Ordinary API connections have no subscription background-consent gate. */
 export function connectionBackgroundAllowed(provider: string | undefined): boolean {
 	if (provider === "chatgpt") return chatGPTBackgroundAllowed();
 	if (provider === CLAUDE_PROVIDER) return claudeBackgroundAllowed();
+	if (provider === ANTIGRAVITY_PROVIDER) return antigravityBackgroundAllowed();
 	const native = provider ? nativeSubscriptionId(provider) : undefined;
 	return native ? nativeSubscriptionBackgroundAllowed(native) : true;
 }
 export function connectionScopeCurrent(provider: string, scope: AdmissionScope): boolean {
 	if (provider === "chatgpt") return chatGPTScopeCurrent(scope);
 	if (provider === CLAUDE_PROVIDER) return claudeScopeCurrent(scope);
+	if (provider === ANTIGRAVITY_PROVIDER) return antigravityScopeCurrent(scope);
 	const native = nativeSubscriptionId(provider); return !!native && nativeAdmissionCurrent(native, scope);
 }
 export function onSubscriptionChange(listener: () => void): () => void {
-	const stopChatGPT = onChatGPTChange(listener), stopNative = onNativeSubscriptionChange(listener), stopClaude = onClaudeChange(listener);
-	return () => { stopChatGPT(); stopNative(); stopClaude(); };
+	const stopChatGPT = onChatGPTChange(listener), stopNative = onNativeSubscriptionChange(listener), stopClaude = onClaudeChange(listener), stopAntigravity = onAntigravityChange(listener);
+	return () => { stopChatGPT(); stopNative(); stopClaude(); stopAntigravity(); };
 }

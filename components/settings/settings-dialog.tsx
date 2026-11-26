@@ -60,6 +60,7 @@ import { usePlugins } from "@/components/plugins";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 import { ClaudeUIProvider } from "./claude-connection.tsx";
+import { AntigravityUIProvider } from "./antigravity-connection.tsx";
 import { LanguageSettings } from "@/components/i18n/language-settings";
 // Fork: Anki cards (docs/anki.md).
 import { AnkiSettings } from "@/components/anki/anki-settings";
@@ -140,12 +141,12 @@ export function SettingsDialogProvider({
 		return () => window.removeEventListener("lh:open-plugin-settings", onPluginSettings);
 	}, [open]);
 	return (
-		<ChatGPTUIProvider><NativeSubscriptionUIProvider><ClaudeUIProvider><WriteOrderContext.Provider value={writeOrder}><DialogContext.Provider value={{ open }}>
+		<ChatGPTUIProvider><NativeSubscriptionUIProvider><ClaudeUIProvider><AntigravityUIProvider><WriteOrderContext.Provider value={writeOrder}><DialogContext.Provider value={{ open }}>
 			{children}
 			{show && (
 				<SettingsDialog onClose={close} initialSection={landOn} initialRow={landOnRow} navigationRequest={navigationRequest} layerId={layerId} />
 			)}
-		</DialogContext.Provider></WriteOrderContext.Provider></ClaudeUIProvider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
+		</DialogContext.Provider></WriteOrderContext.Provider></AntigravityUIProvider></ClaudeUIProvider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
 	);
 }
 

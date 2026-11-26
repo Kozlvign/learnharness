@@ -66,6 +66,8 @@ export type { ChatGPTStatus, ChatGPTControlBridge } from "./contracts/chatgpt.ts
 export { NATIVE_SUBSCRIPTIONS } from "./contracts/subscriptions.ts";
 export { CLAUDE_API, CLAUDE_INSTALL_URL, CLAUDE_LABEL, CLAUDE_PROVIDER } from "./contracts/claude.ts";
 export type { ClaudeAccount, ClaudeControl, ClaudeModelSummary, ClaudeState, ClaudeStatus, ClaudeUsageWindow } from "./contracts/claude.ts";
+export { ANTIGRAVITY_API, ANTIGRAVITY_INSTALL_URL, ANTIGRAVITY_LABEL, ANTIGRAVITY_MINIMUM_VERSION, ANTIGRAVITY_PROVIDER } from "./contracts/antigravity.ts";
+export type { AntigravityAccount, AntigravityControl, AntigravityExecutableSource, AntigravityInstall, AntigravityInstallPhase, AntigravityLogin, AntigravityLoginPhase, AntigravityManaged, AntigravityModelSummary, AntigravityState, AntigravityStatus } from "./contracts/antigravity.ts";
 // Fork: interface and tutor language (docs/language.md).
 export * from "./i18n/index.ts";
 // Fork: images attached to messages (docs/images.md).

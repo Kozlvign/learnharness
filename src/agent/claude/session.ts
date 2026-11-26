@@ -10,6 +10,7 @@ import type { EffortLevel, Query, SDKMessage, SDKUserMessage } from "@anthropic-
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@earendil-works/pi-ai";
+import { onGracefulShutdown } from "../graceful-shutdown.ts";
 import { claudeDir } from "./connection.ts";
 import type { ClaudeExecutable } from "./executable.ts";
 import type { ContentBlock, McpContent } from "./transcript.ts";
@@ -269,23 +270,10 @@ export async function pauseAllSessions(): Promise<void> {
 
 /** The desktop shell asks its server to stop (or goes away). Interrupt open
  * Claude Code turns first: a killed session would otherwise retry its open
- * tool calls on its own before exiting. */
+ * tool calls on its own before exiting. Shared with the Antigravity
+ * connection, so both pause before the server exits. */
 function installShutdown(): void {
-	if (typeof process.send !== "function") return;
-	let stopping = false;
-	const stop = () => {
-		if (stopping) return;
-		stopping = true;
-		const timer = setTimeout(() => process.exit(0), 2500);
-		void pauseAllSessions().finally(() => { clearTimeout(timer); process.exit(0); });
-	};
-	process.on("message", (raw: unknown) => {
-		const message = raw as { channel?: unknown; op?: unknown } | null;
-		if (message?.channel === "lh:claude" && message.op === "shutdown") stop();
-	});
-	process.once("disconnect", stop);
-	// Tell the shell to ask before stopping this server.
-	try { process.send({ channel: "lh:claude", op: "graceful" }); } catch { /* shell gone */ }
+	onGracefulShutdown("lh:claude", pauseAllSessions);
 }
 
 function recordsFile(): string { return path.join(claudeDir(), "sessions.json"); }
