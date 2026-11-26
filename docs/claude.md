@@ -91,42 +91,49 @@ At most six sessions are live at once. A session waiting for the learner closes 
 
 `scripts/fork/release-windows.ps1` keeps the fork current:
 
-1. It merges `upstream/main`, and stops without changing anything if the merge conflicts.
-2. If nothing changed since the last fork release, it exits.
-3. It translates new upstream interface text into Portuguese with your Claude Code and commits the catalog ([language.md](language.md)).
-4. It builds and checks the app as upstream's release workflow does: type check, the bridge and language tests, `next build`, then the provider and server smoke tests.
-5. It runs `electron-builder --win`, tags the commit, and publishes the installer, blockmap and `latest.yml` as a release of the fork. With `-Install` it also installs the build.
+1. It merges `upstream/main`, and stops without changing anything if the merge conflicts. With `-ForkOnly` it moves to the fork's `main` instead.
+2. It builds nothing when nothing changed. With `-InstalledCommit`, that means the installed app already has what `main` has. When the last build in `dist\` already has it, that build is reused, and its release is completed if an earlier run was cut short (`dist\build.json` records its version, commit and whether it was published). Run by hand, it also stops when nothing changed since the last fork release.
+3. It runs `npm ci`, for the app and for each plugin, only when that `package-lock.json` changed since the last install that finished there. A hash in `node_modules\.lh-lock-hash` records it.
+4. It translates new upstream interface text into Portuguese with your Claude Code and commits the catalog ([language.md](language.md)).
+5. It builds and checks the app as upstream's release workflow does: type check, the bridge and language tests, `next build`, then the provider and server smoke tests. `-SkipChecks` leaves the checks out.
+6. It runs `electron-builder --win`, tags the commit, and publishes the installer, blockmap and `latest.yml` as a release of the fork. With `-Install` it installs the build before publishing it.
 
-Installed copies update themselves from the fork's releases: `publish` in `electron-builder.yml` points at the fork. So an upstream release never replaces a fork build. Fork versions put the upstream version and a fork revision into the patch number: upstream `0.3.8`, revision 1 → `0.3.801`. The script applies them at build time with `-c.extraMetadata.version`, so `package.json` keeps upstream's version and merges stay clean.
+Fork versions put the upstream version and a fork revision into the patch number: upstream `0.3.8`, revision 1 → `0.3.801`. The script applies them at build time with `-c.extraMetadata.version`, so `package.json` keeps upstream's version and merges stay clean. `publish` in `electron-builder.yml` points at the fork, so an upstream release never replaces a fork build. A fork build with the update button turns electron-updater off: the button is its only way to update.
 
-Only one release runs at a time on the computer. Each run writes a log to `%LOCALAPPDATA%\LearnHarness-fork\logs`.
+Only one release runs at a time on the computer; a second run waits up to 20 minutes for the first. Each run writes a log to `%LOCALAPPDATA%\LearnHarness-fork\logs`, with the time of each step.
 
 ### Update button
 
-A change merged into the fork's `main` reaches the installed app only through a new build. The icon beside **Settings**, at the bottom of the sidebar, makes that one click:
+A change merged into the fork's `main` reaches the installed app through a new build, which the app makes on its own. The icon beside **Settings**, at the bottom of the sidebar, shows it:
 
-- **Checking.** The app checks once when it opens, and again with **Check now**. It runs `git fetch` in the checkout the app was built from, then compares the installed commit with `origin/main`. When `main` has changes the app lacks, the icon shows a dot. Its panel lists those changes by commit type (New feature, Fix, Performance, Tweak) and shows both versions.
+- **Checking.** The app checks when it opens, and again with **Check now**. It runs `git fetch` in the checkout the app was built from, then compares the installed commit with `origin/main`. The panel lists the changes the app lacks by commit type (New feature, Fix, Performance, Tweak) and shows both versions.
   - Only changes to the app count. The fork's scripts, `docs/` and the README are left out, as the release script leaves them out.
   - After a rebase of the fork onto upstream, changes already installed are not listed again.
-  - Checking never builds anything.
-- **Update.** It runs `release-windows.ps1 -ForkOnly` in that checkout, in the background and with no window:
+- **Building.** A check that finds changes starts `release-windows.ps1 -ForkOnly -InstalledCommit <installed> -StageDir <app folder>.staged -SkipChecks` in that checkout, in the background and with no window:
   - It moves the checkout to the fork's `main` without merging upstream. If `main` was rewritten on GitHub, a clean checkout is reset to it.
-  - It translates, checks, builds and publishes the release, as above. It takes about 7 minutes, and the panel shows the step.
-  - It keeps going if the app is closed. The next launch shows the build still running, finished or failed.
-- **Restart now** closes the app, installs the new version silently and opens it. Without a restart, the new version installs when the app closes.
-- If a step fails, the panel shows the script's message and the path of its log. The installed version doesn't change.
+  - It translates and builds the app as above, without the checks, and copies the packaged app beside the installed one (`%LOCALAPPDATA%\Programs\learnharness.staged`). With unchanged dependencies this takes a few minutes, and the panel shows the step.
+  - The update is ready then, and the icon shows a dot. The script goes on to make the installer and publish the release.
+  - It keeps going if the app is closed. The next launch shows the build still running, finished or failed. A build cut short, for example by turning the computer off, starts again.
+- **Restart now** closes the app, swaps in the new version and opens it. Without a restart, the new version is swapped in when the app closes. The swap takes seconds: `learnharness` becomes `learnharness.previous`, the backup for a rollback, which replaces the one before, and `learnharness.staged` becomes `learnharness`. The installer's uninstaller is kept, and the version in Windows' list of apps is updated.
+- If a step fails, the panel shows the script's message and the path of its log. The installed version doesn't change. A failed build is not started again on its own for the same `main`; **Update** retries it, and a newer `main` builds on its own.
 
 How it works:
 
 - The release script records, in the build's `package.json`, the commit it built (`lhForkCommit`) and the checkout's folder (`lhForkSource`). Builds without them, such as upstream's, development builds and CI builds, have no button.
-- The panel's state lives in `%LOCALAPPDATA%\LearnHarness-fork\app-update`. `run.json` holds the running script's process, the script writes its step to `progress.json` and its outcome to `result.json`, and the installer runs with `--updated /S` (plus `--force-run` on a restart).
-- To try the panel from a development shell, set `LH_FORK_COMMIT` and `LH_FORK_SOURCE` to a commit and a checkout.
+- The panel's state lives in `%LOCALAPPDATA%\LearnHarness-fork\app-update`:
+  - `run.json` holds the running script's process, the `main` it builds and its changes.
+  - The script writes its step to `progress.json` and its outcome to `result.json`.
+  - `failed.json` holds the `main` whose build failed.
+  - `electron/fork-install.ps1`, copied there as `install.ps1`, swaps the folders once the app has exited and writes its outcome to `install.json`.
+- To roll back, close the app, rename `learnharness` aside and rename `learnharness.previous` to `learnharness`.
+- To try the panel from a development shell, set `LH_FORK_COMMIT` and `LH_FORK_SOURCE` to a commit and a checkout, and `LH_FORK_INSTALL_DIR` to a stand-in for the app's folder.
 
 | File | Role |
 | --- | --- |
-| `electron/fork-update.cjs` | Checking, starting the script, following it across launches, installing |
+| `electron/fork-update.cjs` | Checking, starting the script, following it across launches, starting the swap |
+| `electron/fork-install.ps1` | Swapping the staged version in after the app exits |
 | `components/fork-update-button.tsx` | The icon and its panel |
-| `tests/fork-update.test.ts`, `tests/render-fork-update.test.tsx` | Tests with temporary git repositories and a fake script |
+| `tests/fork-update.test.ts`, `tests/render-fork-update.test.tsx` | Tests with temporary git repositories, a fake script and real swaps in a temporary folder |
 
 ### Automatic updates
 

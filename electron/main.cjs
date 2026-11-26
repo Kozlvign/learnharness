@@ -564,6 +564,14 @@ function setupAutoUpdater() {
 		reportUpdateStatus("disabled");
 		return;
 	}
+	// Fork (update button): a fork build updates from the fork's main through
+	// its own button. electron-updater would download the release that build
+	// just published and run its installer while the button swaps folders.
+	if (forkUpdate) {
+		log("auto-update: off in the fork build (the update button installs updates)");
+		reportUpdateStatus("disabled");
+		return;
+	}
 	try {
 		autoUpdater = require("electron-updater").autoUpdater;
 	} catch (err) {
@@ -629,8 +637,16 @@ function setupForkUpdate() {
 		const { createForkUpdate, forkUpdateSource } = require("./fork-update.cjs");
 		const source = forkUpdateSource({ packageJsonPath: path.join(__dirname, "..", "package.json"), env: process.env, platform: process.platform });
 		if (!source) return;
+		// The folder the new version replaces. A development shell trying the
+		// button (LH_FORK_COMMIT) names a stand-in with LH_FORK_INSTALL_DIR.
+		const installDir = app.isPackaged ? path.dirname(process.execPath) : process.env.LH_FORK_INSTALL_DIR;
+		if (!installDir || !path.isAbsolute(installDir)) {
+			log("fork update: unavailable (no install folder; set LH_FORK_INSTALL_DIR in development)");
+			return;
+		}
 		forkUpdate = createForkUpdate({
 			source,
+			installDir,
 			stateDir: path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "LearnHarness-fork", "app-update"),
 			log,
 			notify: (state) => {
@@ -828,6 +844,8 @@ async function main() {
 
 	installMenu();
 
+	// Fork update button first: a fork build turns electron-updater off.
+	setupForkUpdate();
 	// Auto-update (Wave C): wire the updater before the window so the
 	// banner channel is live from first paint; the first check and the 24h
 	// interval fire after it below. setupAutoUpdater's contract: failures
@@ -852,7 +870,6 @@ async function main() {
 	});
 
 	// Fork update button: same sender rule as the updater channels above.
-	setupForkUpdate();
 	const forkUpdateSender = (event) => trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) && trustedSender(event, new URL(url).origin, BrowserWindow);
 	ipcMain.handle("lh:fork-update:get", (event) => {
 		if (!forkUpdateSender(event)) throw new Error("Untrusted desktop request.");
@@ -924,6 +941,7 @@ async function main() {
 		checkForUpdates();
 		setInterval(() => checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);
 	}
-	// Fork update button: one quiet check per launch; updating needs a click.
+	// Fork update button: one check per launch; changes on the fork's main
+	// start the build on their own.
 	void forkUpdate?.check();
 }

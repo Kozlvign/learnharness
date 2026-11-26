@@ -42,8 +42,17 @@ describe("what the panel says", () => {
 	it("turns codes and script steps into sentences", () => {
 		assert.equal(forkUpdateView(state({ status: "check-failed", error: "fetch" })).description, "Couldn't reach the fork's main on GitHub. Check your connection.");
 		assert.equal(forkUpdateView(state({ status: "build-failed", error: "interrupted" })).description, "The update stopped before it finished.");
-		assert.equal(forkUpdateView(state({ status: "building", step: "Building" })).description, "Building the new version. This takes a few minutes.");
+		assert.equal(forkUpdateView(state({ status: "build-failed", error: "nothing" })).description, "The release script ended without a new version to install.");
+		assert.equal(forkUpdateView(state({ status: "build-failed", error: "swap" })).description, "The new version couldn't replace the installed one.");
+		assert.equal(forkUpdateView(state({ status: "building", step: "Building" })).description, "Building the new version…");
+		assert.equal(forkUpdateView(state({ status: "building", step: "Copying the new version" })).description, "Copying the new version…");
+		assert.equal(forkUpdateView(state({ status: "building", step: "Waiting for the previous update" })).description, "Waiting for the previous update to finish publishing…");
 		assert.equal(forkUpdateView(state({ status: "building", step: "Something new" })).description, "Starting the release script…");
+	});
+
+	it("a build names both versions once main's commit is known", () => {
+		assert.match(forkUpdateView(state({ status: "building", latest: { sha: sha("b"), date: null } })).version!, /^aaaaaaa \(.+\) → bbbbbbb$/);
+		assert.equal(forkUpdateView(state({ status: "building" })).version, undefined);
 	});
 });
 
@@ -136,6 +145,20 @@ describe("the button beside Settings", () => {
 		assert.equal(b.calls.start, 1);
 		assert.equal(byTest("fork-update-title")!.textContent, "Preparing the update…", "the start reply shows the build");
 		assert.equal(byTest("fork-update-badge"), null);
+	});
+
+	it("lists the changes while the update builds and once it is ready", async () => {
+		const changes = [{ sha: sha("c"), date: null, subject: "feat: images in answers" }];
+		const b = bridge(state({ status: "building", step: "Building", changes, changeCount: 1 }));
+		await mount(b.fake);
+		await click(byTest("fork-update-button"));
+		assert.equal(byTest("fork-update-title")!.textContent, "Preparing the update…");
+		assert.deepEqual([...byTest("fork-update-changes")!.querySelectorAll("li")].map(li => li.textContent), ["New featureImages in answers"]);
+		await b.push(state({ status: "ready", version: "0.7.4", changes, changeCount: 1, revision: 5 }));
+		assert.equal(byTest("fork-update-title")!.textContent, "Update ready");
+		assert.ok(byTest("fork-update-changes"));
+		await b.push(state({ status: "up-to-date", changes, changeCount: 1, revision: 6 }));
+		assert.equal(byTest("fork-update-changes"), null, "nothing listed once installed");
 	});
 
 	it("follows pushes, and an older snapshot never hides a newer push", async () => {
