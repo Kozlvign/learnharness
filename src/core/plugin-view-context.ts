@@ -64,7 +64,10 @@ export function capturePluginSessionView(source: SessionViewSource): PluginSessi
   if (input.type === "unavailable") return freeze(structuredClone(source)) as unknown as PluginSessionViewContext;
   const { surfaceTarget, ...data } = input;
   const copy = freeze(structuredClone({ ...rest, input: data }));
-  return Object.freeze({ ...copy, input: Object.freeze({ ...copy.input, surfaceTarget }) }) as PluginSessionViewContext;
+  // Cloning/freezing establishes deep immutability at runtime. As in the
+  // unavailable branch, cross unknown here so TypeScript does not recursively
+  // compare the entire native-message graph with Immutable<LhMessage>.
+  return Object.freeze({ ...copy, input: Object.freeze({ ...copy.input, surfaceTarget }) }) as unknown as PluginSessionViewContext;
 }
 /** Lazy for render-time disabled predicates; the chrome forces a fresh capture on click. */
 export function createPluginSessionActionContext(base: Omit<Extract<PluginActionContext, { surface: "session"; placement: "top-bar" }>, "view">,
