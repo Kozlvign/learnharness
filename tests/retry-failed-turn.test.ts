@@ -47,7 +47,7 @@ after(() => {
 
 const QUIZ_INPUT = {
 	question: "Which planet is closest to the sun?",
-	options: [{ label: "Venus" }, { label: "Mercury" }],
+	options: [{ label: "Venus", explanation: "Second from the sun." }, { label: "Mercury", explanation: "The innermost planet." }],
 	correctAnswer: "Mercury",
 	explanation: "Mercury is the innermost planet.",
 	type: "check",

@@ -157,6 +157,33 @@ describe("side lesson document", () => {
 		assert.doesNotMatch(doc, /correctAnswer|"dq"/);
 	});
 
+	it("each option's own why is hidden while open and shown, under its option, once answered", () => {
+		const id = "option-whys";
+		const args = {
+			...QUIZ_ARGS,
+			options: [
+				{ label: "Difference quotient as h→0", value: "dq", explanation: "SECRET-WHY-DQ the secant slopes converge" },
+				{ label: "Area under the curve", value: "area", explanation: "SECRET-WHY-AREA that is the integral\nnot the slope" },
+			],
+		};
+		const posed = assistant([call(id, "quiz", args)]);
+		const open = sideChatLessonDocument([posed]);
+		assert.doesNotMatch(open, /SECRET-WHY/);
+		const displayed = core.questionDisplayOptions(args.options, "quiz", false, id);
+		const answer = core.buildAnswer({
+			id, kind: "quiz", question: args.question, mode: "single-select", ...displayed,
+			correctIndices: core.resolveCorrect(args.correctAnswer, displayed.options).indices,
+			optionExplanations: core.extractOptionExplanations(args.options),
+			createdAt: "2026-11-27",
+		}, { values: ["area"] }, "quiz");
+		const answered = sideChatLessonDocument([posed, core.newAnswerResult(id, "quiz", answer)]);
+		const areaLetter = String.fromCharCode(65 + displayed.options.findIndex((o) => o.value === "area"));
+		assert.ok(answered.includes(
+			`- ${areaLetter}. Area under the curve *(chosen by the learner)*\n  *Why shown to the learner:* SECRET-WHY-AREA that is the integral\n  not the slope`,
+		));
+		assert.match(answered, /\*\(correct\)\*\n {2}\*Why shown to the learner:\* SECRET-WHY-DQ the secant slopes converge/);
+	});
+
 	it("uses the same letters before and after answering a probe, without spoiling the open answer", () => {
 		const id = "lettered-probe";
 		const posed = assistant([call(id, "probe", QUIZ_ARGS)]);

@@ -1,7 +1,7 @@
 /** Read-only provenance for historical question cards. Never persist this
  * projection: answer identities, ordering, grading, and learner text remain
  * the recorded facts; only model-authored display text comes from the call. */
-import { displayedOptionLetter, normalizeOptions, optionLetterAt, type QuestionAnswerData } from "./question-core.ts";
+import { displayedOptionLetter, extractOptionExplanations, normalizeOptions, optionExplanationFor, optionLetterAt, type QuestionAnswerData } from "./question-core.ts";
 import { parseAskInput, parseExplainInput, parseQuizInput } from "./tool-parts.ts";
 import { repairMathForDisplay } from "./math-delims.ts";
 
@@ -70,9 +70,15 @@ export function answerForPresentation(answer: QuestionAnswerData, input: unknown
 		const oi = original.findIndex((_, i) => !used.has(i));
 		bindings.set(si, oi);
 	}
+	// Each quiz option's own explanation also comes from the call, so the
+	// Why panel recovers it exactly like the label. A source without one
+	// keeps the saved snapshot's.
+	const explanations = quiz ? extractOptionExplanations(source.options) : undefined;
 	projected.options = saved.map((option, si) => {
 		const oi = bindings.get(si);
-		return oi === undefined ? option : { ...option, label: original[oi]!.label };
+		if (oi === undefined) return option;
+		const explanation = optionExplanationFor(explanations, original[oi]!.value);
+		return { ...option, label: original[oi]!.label, ...(explanation ? { explanation } : {}) };
 	});
 	return projected;
 }

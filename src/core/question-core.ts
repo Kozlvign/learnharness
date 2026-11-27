@@ -33,12 +33,8 @@ export interface QuizOption {
 // ─── tool input schemas (the question contract) ─────────────────────────────
 // Parameter names mirror the prompt docs exactly — keep them in sync.
 
-/** One quiz answer option. Owner ruling (2026-09-26): NO `description`
- *  field — the model reliably used it to leak correctness ("that's not the
- *  gradient", "close but…"), making quizzes answerable by elimination.
- *  Neutral elaboration belongs in the question text or the post-answer
- *  explanation; the option is a bare claim. */
-const quizOptionProps = {
+/** The option fields every question tool shares: the label and its key. */
+const optionIdentityProps = {
 	label: Type.String({ description: "Display label for the answer option — a bare claim, no reasoning" }),
 	value: Type.Optional(
 		Type.String({
@@ -47,10 +43,35 @@ const quizOptionProps = {
 	),
 };
 
+const optionExplanationDescription =
+	"REQUIRED. This option's own explanation, revealed only AFTER the learner answers, in the Why panel beside " +
+	"the option: why it is correct, or why it is wrong. Never shown before he answers.";
+
+/** One quiz answer option. Owner ruling (2026-09-26): NO `description`
+ *  field — the model reliably used it to leak correctness ("that's not the
+ *  gradient", "close but…"), making quizzes answerable by elimination.
+ *  Neutral elaboration belongs in the question text or the post-answer
+ *  explanations; the option label is a bare claim. Each option carries its
+ *  OWN `explanation` (owner, 2026-11-27): revealed only after the answer,
+ *  never in the pending dock, so it cannot leak correctness. */
+const quizOptionProps = {
+	...optionIdentityProps,
+	explanation: Type.String({ description: optionExplanationDescription }),
+};
+
+/** The DISPLAY variant: records from before per-option explanations carry
+ *  none, so the display parse keeps the field optional (Value.Clean keeps
+ *  only keys the schema knows — it must still be declared). */
+const quizDisplayOptionProps = {
+	...optionIdentityProps,
+	explanation: Type.Optional(Type.String()),
+};
+
 /** One ask answer option — keeps `description`: ask is ungraded preference
- *  collection, there is no correctness to leak. */
+ *  collection, there is no correctness to leak. No per-option explanation:
+ *  there is nothing to explain. */
 const askOptionProps = {
-	...quizOptionProps,
+	...optionIdentityProps,
 	description: Type.Optional(
 		Type.String({ description: "Optional extra detail shown below the option" }),
 	),
@@ -107,6 +128,44 @@ function optionProblems(
 /** ask options: the shared sanity, nothing more (ask is not graded). */
 export function askOptionProblems(options: Array<{ label: string; value?: string }>): string[] {
 	return optionProblems(options).problems;
+}
+
+/** The per-option explanation contract, run ONLY at the tool-call boundary
+ *  (probe / quiz execute): every option explains itself. Deliberately kept
+ *  out of quizInputProblems — the display parse runs that one, and records
+ *  from before per-option explanations must keep rendering. */
+export function quizOptionExplanationProblems(options: Array<{ explanation?: string }>): string[] {
+	return options.flatMap((option, i) =>
+		typeof option.explanation === "string" && option.explanation.trim().length > 0
+			? []
+			: [`options[${i}].explanation is empty — every option needs its own explanation (why it is correct, or why it is wrong).`],
+	);
+}
+
+/** The per-option explanations of a quiz call, keyed by the option's
+ *  resolved value (trimmed `value`, falling back to the trimmed label —
+ *  exactly how normalizeOptions keys them). Accepts the persisted call's
+ *  raw options, string-encoded ones included. Undefined when no option
+ *  carries one (older records). Never part of ClientQuestion. */
+export function extractOptionExplanations(options: unknown): Record<string, string> | undefined {
+	const coerced = parseOptionsIfString(options as string | unknown[] | undefined);
+	if (!Array.isArray(coerced)) return undefined;
+	const entries: Array<[string, string]> = [];
+	for (const option of coerced) {
+		if (!option || typeof option !== "object") continue;
+		const { label, value, explanation } = option as { label?: unknown; value?: unknown; explanation?: unknown };
+		if (typeof label !== "string" || typeof explanation !== "string") continue;
+		const key = (typeof value === "string" ? value.trim() : "") || label.trim();
+		const text = explanation.trim();
+		if (key && text) entries.push([key, text]);
+	}
+	// Object.fromEntries defines own keys, so a value like "__proto__" stays data.
+	return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+/** One option's explanation from the keyed map (own keys only). */
+export function optionExplanationFor(explanations: Record<string, string> | undefined, value: string): string | undefined {
+	return explanations && Object.hasOwn(explanations, value) ? explanations[value] : undefined;
 }
 
 /** The full quiz authoring contract: option sanity + correctAnswer must be
@@ -423,9 +482,11 @@ export const probeQuizInputSchema = quizInputBase;
  *  otherwise lose the role it renders and gates by). Normalization is
  *  normalizeQuizType at the read seam; nodeId stays stripped (unknown
  *  key). The PROBE quiz parses against the bare base — probe calls carry
- *  no type. */
+ *  no type. Options use the DISPLAY option shape: each option's
+ *  `explanation` is optional here (older records carry none). */
 export const quizDisplayInputSchema = Type.Object({
 	...quizInputBase.properties,
+	options: Type.Array(Type.Object(quizDisplayOptionProps), { minItems: 2 }),
 	type: Type.Optional(Type.String()),
 });
 
@@ -557,7 +618,12 @@ export const askInputSchema = Type.Object({
 // graded, but duplicate values break the dock's value keying) runs at the
 // call boundary in execute (askOptionProblems, above).
 
-export type QuizToolInput = Static<typeof quizInputObject>;
+/** The quiz input as consumers read it (parseQuizInput, the dock): the
+ *  teacher's shape, but each option's `explanation` is optional — the
+ *  display parse accepts records from before per-option explanations. */
+export type QuizToolInput = Omit<Static<typeof quizInputObject>, "options"> & {
+	options: Static<typeof quizDisplayInputSchema>["options"];
+};
 export type AskToolInput = Static<typeof askInputSchema>;
 export type ExplainToolInput = Static<typeof explainInputObject>;
 export type ProbeExplainToolInput = Static<typeof explainInputBase>;
@@ -597,6 +663,9 @@ export interface QuestionData {
 	committedAnswer?: string;
 	// quiz only (the MC "why"). NEVER send to the client before answering:
 	explanation?: string;
+	// quiz only: each option's own "why", keyed by option value
+	// (extractOptionExplanations). NEVER send to the client before answering:
+	optionExplanations?: Record<string, string>;
 	createdAt: string;
 }
 
@@ -616,7 +685,9 @@ export interface QuestionAnswerData {
 	 *  Absent on old records and probe answers. */
 	questionType?: QuizQuestionType;
 	questionText: string;
-	options?: { index: number; label: string }[]; // snapshot for rendering
+	/** Snapshot for rendering. Quiz options also carry their own post-answer
+	 *  `explanation` when the call authored one (absent on older records). */
+	options?: { index: number; label: string; explanation?: string }[];
 	optionOrder?: OptionOrder; // snapshot; absent on older or unlettered answers
 	dontKnow: boolean;
 	answers: OptionAnswer[];
@@ -946,7 +1017,10 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		...(tool ? { tool } : {}),
 		questionType: qd.questionType,
 		questionText: qd.question,
-		options: qd.options.map((o, i) => ({ index: i + 1, label: o.label })),
+		options: qd.options.map((o, i) => {
+			const explanation = qd.kind === "quiz" ? optionExplanationFor(qd.optionExplanations, o.value) : undefined;
+			return { index: i + 1, label: o.label, ...(explanation ? { explanation } : {}) };
+		}),
 		...(qd.optionOrder ? { optionOrder: qd.optionOrder } : {}),
 		dontKnow: req.dontKnow === true,
 		answers: [],

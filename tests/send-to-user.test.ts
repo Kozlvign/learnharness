@@ -354,7 +354,7 @@ describe("send_to_user native flow (offline)", () => {
 		const lesson = "**Synthetic lesson:** four is twice two. $2 + 2 = 4$";
 		const quiz = {
 			type: "check", nodeId: "synthetic", question: "What is two plus two?",
-			options: [{ label: "Four", value: "4" }, { label: "Five", value: "5" }],
+			options: [{ label: "Four", value: "4", explanation: "Two pairs." }, { label: "Five", value: "5", explanation: "One too many." }],
 			correctAnswer: "4", explanation: "Add two pairs.",
 		};
 		const { engine, faux } = scripted("openrouter", "anthropic/claude-opus-5.5", [
@@ -399,7 +399,7 @@ describe("send_to_user native flow (offline)", () => {
 
 const guardQuizInput = {
 	type: "check", nodeId: "synthetic", question: "What is two plus two?",
-	options: [{ label: "Four", value: "4" }, { label: "Five", value: "5" }],
+	options: [{ label: "Four", value: "4", explanation: "Two pairs." }, { label: "Five", value: "5", explanation: "One too many." }],
 	correctAnswer: "4", explanation: "Add two pairs.",
 };
 const narration = () => ({

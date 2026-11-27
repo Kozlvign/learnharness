@@ -28,7 +28,7 @@ const { projectView } = await import("../src/core/view.ts");
 const { parseQuestionInput } = await import("../src/core/tool-parts.ts");
 const { inputAppends, parseChatInput, questionRecoveryAppends, endsInFailedTurn } = await import("../src/core/input-events.ts");
 
-const valid = { type: "check", nodeId: "fixture", question: "Which is even?", options: [{ label: "2", value: "a" }, { label: "3", value: "b" }], correctAnswer: "a", explanation: "2 is divisible by 2." };
+const valid = { type: "check", nodeId: "fixture", question: "Which is even?", options: [{ label: "2", value: "a", explanation: "Divisible by 2." }, { label: "3", value: "b", explanation: "Leaves remainder 1." }], correctAnswer: "a", explanation: "2 is divisible by 2." };
 const partial = { type: "check", nodeId: "fixture", question: "What follows from $\\frac" };
 function assistant(input: unknown = partial, stopReason = "toolUse", id = "fixture-assistant", callId = "bad", tool = "quiz"): AssistantMessage & { id: string } {
 	return { ...fauxAssistantMessage([fauxToolCall(tool, input as JsonObject, { id: callId })], { stopReason: stopReason as AssistantMessage["stopReason"] }), id };

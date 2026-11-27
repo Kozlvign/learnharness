@@ -22,7 +22,7 @@ import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE }
 import { createReadTool, readTool } from "./tools/read.ts";
 import { ANKI_CARD_TOOL } from "../core/anki/contract.ts";
 import { CREATE_COURSE_TOOL } from "../core/course.ts";
-import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
+import { quizInputObject, quizInputProblems, quizOptionExplanationProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
@@ -384,7 +384,7 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
 		parameters: quizInputObject,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
-			const problems = quizInputProblems(input);
+			const problems = [...quizInputProblems(input), ...quizOptionExplanationProblems(input.options)];
 			if (problems.length > 0) return invalidInputResult("quiz", problems);
 			return questionResult();
 		},

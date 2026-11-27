@@ -91,7 +91,7 @@ const quiz = (extra: Record<string, unknown>) => ({
 	type: "check",
 	nodeId: "limits",
 	question: "Which is even?",
-	options: [{ label: "2", value: "a" }, { label: "3", value: "b" }],
+	options: [{ label: "2", value: "a", explanation: "Divisible by 2." }, { label: "3", value: "b", explanation: "Leaves remainder 1." }],
 	explanation: "2 is divisible by 2.",
 	correctAnswer: "a",
 	...extra,
@@ -818,6 +818,20 @@ describe("the teaching audit", () => {
 		assert.match(markdown, /Explicação comprometida: Because it is even\./);
 		assert.equal(markdown.split("**(certa)**").length - 1, 1);
 		assert.match(markdown, /\*\*\(certa\)\*\* 2/);
+	});
+
+	it("the transcript keeps each quiz option's own explanation under it; older calls render as before", () => {
+		const posed = assistant("option_whys", T0, [
+			{ id: "whys", name: "quiz", args: quiz({ intent: "climb", rung: 3, options: [
+				{ label: "2", value: "a", explanation: "Divisible by 2." },
+				{ label: "3", value: "b", explanation: "Leaves remainder 1\nwhen halved." },
+			] }) },
+			{ id: "legacy", name: "probe", args: { question: "Pick", options: [{ label: "x" }, { label: "y" }], correctAnswer: "x", explanation: "Because." } },
+		]);
+		const record = { id: "option_whys", title: "Option whys", messages: [posed] };
+		const markdown = renderAuditMarkdown(auditChat(record), record, { transcript: true });
+		assert.ok(markdown.includes("- **(certa)** 2\n  - Explicação da opção: Divisible by 2.\n- 3\n  - Explicação da opção: Leaves remainder 1\n    when halved."));
+		assert.ok(markdown.includes("- **(certa)** x\n- y\n"));
 	});
 
 	it("an untagged chat still gets the indicators that need no tags", () => {

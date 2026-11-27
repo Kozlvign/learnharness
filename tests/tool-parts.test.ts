@@ -25,8 +25,8 @@ import { probeDoneInputSchema } from "../src/core/contracts/probe.ts";
 const TEACHER_QUIZ = {
 	question: "What does Tarski's convention-T define?",
 	options: [
-		{ label: "Truth for a language", value: "truth" },
-		{ label: "Provability", value: "provability" },
+		{ label: "Truth for a language", value: "truth", explanation: "Convention-T fixes the truth predicate." },
+		{ label: "Provability", value: "provability", explanation: "Provability is syntactic, not truth." },
 	],
 	correctAnswer: "truth",
 	explanation: "Convention-T schematizes truth for the object language.",
@@ -36,7 +36,7 @@ const TEACHER_QUIZ = {
 
 const PROBER_QUIZ = {
 	question: "Which planet is closest to the sun?",
-	options: [{ label: "Venus" }, { label: "Mercury" }],
+	options: [{ label: "Venus", explanation: "Venus is second." }, { label: "Mercury", explanation: "Mercury is innermost." }],
 	correctAnswer: "Mercury",
 	explanation: "Mercury is the innermost planet.",
 };
