@@ -2187,6 +2187,7 @@
 		"working is invalid or too long": null,
 		"yes": "sim",
 		"you asked": "você pediu",
+		"{0} *Why shown to the learner:* {1}": null,
 		"{0} Complete ChatGPT sign-in in a browser on that same machine.": "{0} Conclua o login do ChatGPT em um navegador nessa mesma máquina.",
 		"{0} MB": "{0} MB",
 		"{0} The working turn stops too.": "{0} O turno em andamento também será interrompido.",
