@@ -28,6 +28,7 @@ import type {
 	CoverageEntry,
 	SessionCheckpoint,
 	SideChatThread,
+	TitleSource,
 	TurnUsage,
 	NotesSource,
 } from "./contracts.ts";
@@ -55,8 +56,10 @@ export interface PluginTaskRecordStore {
 export interface ChatStore {
 	/** Create a session record (persisted immediately). */
 	/** Create a session record; kind "practice" marks a practice session
-	 *  (absent = teach, the default). */
-	createChat(title: string, kind?: "practice"): ChatRecord;
+	 *  (absent = teach, the default). Fork (docs/session-titles.md):
+	 *  `titleSource` records who set the title; absent leaves the field
+	 *  off the record (read as a legacy record). */
+	createChat(title: string, kind?: "practice", opts?: { titleSource?: TitleSource }): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
@@ -80,8 +83,11 @@ export interface ChatStore {
 	saveSettings(id: string, settings: ChatSettings): void;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
-	 * stays put, so sidebar order never churns on a rename. */
-	renameChat(id: string, title: string): ChatRecord;
+	 * stays put, so sidebar order never churns on a rename. Fork
+	 * (docs/session-titles.md): `titleSource` records who renamed it —
+	 * "user" by default (every manual rename); the tutor's rename_session
+	 * passes "agent". Announces chats-changed and chat-renamed. */
+	renameChat(id: string, title: string, titleSource?: TitleSource): ChatRecord;
 	/** Delete the session record entirely (session-deletion wave 6, owner
 	 *  2026-09-22). False when the id is unknown. The graph-ledger purge and
 	 *  job cleanup are the caller's choreography (core/graph-deletion.ts +

@@ -510,6 +510,12 @@ function SessionsSidebar() {
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, []);
+	// Fork (docs/session-titles.md): a server-side rename (the tutor's
+	// rename_session, or another window) patches the row the same way,
+	// before the chats-changed refresh lands.
+	useServerEvent("chat-renamed", ({ chatId, title }) => {
+		setChats((prev) => (prev ? prev.map((c) => (c.id === chatId ? { ...c, title } : c)) : prev));
+	});
 
 	/* INSTANT TURN-STATE (owner, sidebar round 2026-10-02): the open
 	   session broadcasts lh:turn-state the instant its turn starts

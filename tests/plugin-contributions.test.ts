@@ -236,7 +236,7 @@ test("plugin tools and Claude output preserve practice correction and mixed-batc
 		], { stopReason: "toolUse" }),
 		fauxAssistantMessage("Must not continue before the learner answers."),
 	]);
-	const agent = createPracticeAgent({ chatId: "mixed-plugin-practice", chatStore: { getChat: () => null } }, {
+	const agent = createPracticeAgent({ chatId: "mixed-plugin-practice", chatStore: { getChat: () => null, renameChat: () => { throw new Error("unexpected rename"); } } }, {
 		engine: { model: faux.getModel(), streamFn: faux.streamSimple }, chatId: "mixed-plugin-practice", pluginContributions: f.host.agentContributions,
 	});
 	await agent.prompt("Pose an offline exercise.");

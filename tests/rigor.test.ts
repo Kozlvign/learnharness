@@ -910,6 +910,8 @@ describe("create_course on the server (rule R7)", async () => {
 		assert.deepEqual(created.withoutFiles, ["Understanding Analysis"]);
 		const record = chatStore.getChat(created.chatId)!;
 		assert.equal(record.title, "Análise real");
+		// Fork (docs/session-titles.md): the course's name is the learner's.
+		assert.equal(record.titleSource, "user");
 		const seed = record.messages[0] as Extract<LhMessage, { role: "custom" }>;
 		assert.equal(seed.customType, "course-seed");
 		assert.match(seed.content, /proposed in another course, “Calculus - Limits”/);

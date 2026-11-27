@@ -18,12 +18,23 @@ import type { EmissionStats } from "./graph.ts";
  * graph writes. Reading an absent kind does not require a record migration. */
 export type ChatKind = "teach" | "practice";
 
+/** Fork (docs/session-titles.md): who set a session's title. auto = derived
+ * from the learner's first message at creation; agent = chosen by the tutor
+ * with rename_session; user = typed or chosen by the learner (a manual
+ * rename, or a course's name at creation). A user title is never replaced
+ * automatically. Records without the field are read by
+ * core/session-title.ts effectiveTitleSource. */
+export type TitleSource = "auto" | "agent" | "user";
+
 /** One persisted native session under data/chats/<id>.json. Messages retain
  * native agent history; transcript rendering groups them into a separate view.
  * Usage, images, plan state and side conversations are session-owned records. */
 export interface ChatRecord {
 	id: string;
 	title: string;
+	/** Fork (docs/session-titles.md): who set the title. Absent on records
+	 * written before the field; read through effectiveTitleSource. */
+	titleSource?: TitleSource;
 	createdAt: string;
 	updatedAt: string;
 	messages: LhMessage[];

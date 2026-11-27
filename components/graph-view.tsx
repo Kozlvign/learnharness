@@ -1256,14 +1256,20 @@ export function GraphView({
 	   hull-only silence — the null-label guard lives in the channel
 	   (applyClusterLabels): a rename can't reach a gone record. */
 	const [, setLabelTick] = useState(0);
+	const applySessionRename = useCallback((id: unknown, title: unknown) => {
+		if (typeof id !== "string" || typeof title !== "string" || id === "" || title === "") return;
+		const snap = snapshotRef.current;
+		if (snap != null) renameSessionsPatch(snap, id, title);
+		rendererRef.current?.setClusterLabels(new Map([[id, title]]));
+		setLabelTick((t) => t + 1);
+	}, []);
+	// Fork (docs/session-titles.md): a server-side rename (the tutor's
+	// rename_session, or another window) takes the same label-only channel.
+	useServerEvent("chat-renamed", ({ chatId, title }) => applySessionRename(chatId, title));
 	useEffect(() => {
 		const onRenamed = (e: Event) => {
 			const { id, title } = (e as CustomEvent<{ id?: string; title?: string }>).detail ?? {};
-			if (typeof id !== "string" || typeof title !== "string" || id === "" || title === "") return;
-			const snap = snapshotRef.current;
-			if (snap != null) renameSessionsPatch(snap, id, title);
-			rendererRef.current?.setClusterLabels(new Map([[id, title]]));
-			setLabelTick((t) => t + 1);
+			applySessionRename(id, title);
 		};
 		const onSourceRenamed = (event: Event) => {
 			const { id, title } = (event as CustomEvent<{ id?: string; title?: string }>).detail ?? {};
@@ -1274,7 +1280,7 @@ export function GraphView({
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		window.addEventListener("lh:source-renamed", onSourceRenamed);
 		return () => { window.removeEventListener("lh:chat-renamed", onRenamed); window.removeEventListener("lh:source-renamed", onSourceRenamed); };
-	}, []);
+	}, [applySessionRename]);
 
 	// The node context menu (node interlude): right-click a node → Delete.
 	// The anchor is a zero-size div positioned at the pointer inside the

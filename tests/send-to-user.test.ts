@@ -49,6 +49,7 @@ const { persistTurn } = await import("../src/server/turn-service.ts");
 const { runPiTurn } = await import("../src/server/pi/ui-stream.ts");
 const { SessionModel } = await import("../components/session-core.ts");
 const { chatStore } = await import("../src/store/chats.ts");
+const { sessionTitleContextNote } = await import("../src/core/session-title.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 
 function scripted(provider: string, id: string, steps: FauxResponseStep[] = []) {
@@ -111,7 +112,9 @@ describe("send_to_user model gate", () => {
 					assert.equal(typeof output!.prepareArguments, "function", "standard argument healing is wired");
 				}
 				const composed = composeInstructions(kind as keyof typeof factories);
-				assert.equal(agent.state.systemPrompt, guarded ? `${composed}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composed);
+				// Fork (docs/session-titles.md): the title note closes every built-in registry's prompt.
+				const builtin = guarded ? `${composed}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composed;
+				assert.equal(agent.state.systemPrompt, `${builtin}\n\n---\n\n${sessionTitleContextNote(chatStore.getChat(chatId)!)}`);
 			}
 		});
 	}

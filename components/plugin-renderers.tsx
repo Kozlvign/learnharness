@@ -1,7 +1,7 @@
 "use client";
 
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { QUESTION_TOOLS, type ArtifactPartProps, type LhViewPart, type PluginCodeBlockProps, type PluginToolRenderProps } from "@/src/core";
+import { QUESTION_TOOLS, RENAME_SESSION_TOOL, type ArtifactPartProps, type LhViewPart, type PluginCodeBlockProps, type PluginToolRenderProps } from "@/src/core";
 import { usePlugins } from "@/components/plugins";
 import { type CodeBlockRegistration, type ToolRendererRegistration, type PluginMount } from "@/components/plugin-manager";
 import { artifactRenderers } from "@/components/artifacts";
@@ -14,9 +14,10 @@ import { JobsContext } from "@/components/jobs-context";
 export const BUILTIN_MERMAID_LANGUAGE = "mermaid";
 
 /** Only actual exclusive presentation claims: not every backend/internal tool.
- * A function avoids eager access across the existing artifact/chat module cycle. */
+ * A function avoids eager access across the existing artifact/chat module cycle.
+ * Fork (docs/session-titles.md): rename_session claims its slot to show nothing. */
 export function reservedToolRendererNames(): string[] {
-	return [...new Set([...Object.keys(artifactRenderers), ...QUESTION_TOOLS, "plan_init"])];
+	return [...new Set([...Object.keys(artifactRenderers), ...QUESTION_TOOLS, "plan_init", RENAME_SESSION_TOOL])];
 }
 
 function RendererMount({ registration, mount, label, fallback }: {
@@ -110,6 +111,9 @@ export function ToolPartRenderer({ part }: { part: LhViewPart }) {
 	// validator error text, including when the renderer is missing.
 	if (part.pluginQuestion) return <p role="status" className="text-xs text-muted-foreground">Question unavailable</p>;
 	const toolName = part.type.slice("tool-".length);
+	// Fork (docs/session-titles.md): a rename shows nothing in the conversation,
+	// streaming, done or refused; the header and the sidebar show the title.
+	if (toolName === RENAME_SESSION_TOOL) return null;
 	const Builtin = Object.hasOwn(artifactRenderers, toolName) ? artifactRenderers[toolName] : undefined;
 	const reserved = Builtin || toolName === "plan_init" || (QUESTION_TOOLS as readonly string[]).includes(toolName);
 	if (reserved && part.state === "input-streaming") return <LiveToolCard part={part as ArtifactPartProps["part"]} />;

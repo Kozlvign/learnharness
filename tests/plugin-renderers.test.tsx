@@ -205,6 +205,14 @@ describe("native tool renderer dispatch", () => {
 		} finally { await h.close(); }
 	});
 
+	it("rename_session is reserved and shows nothing in any state (docs/session-titles.md)", () => {
+		assert.ok(reservedToolRendererNames().includes("rename_session"));
+		for (const state of ["input-streaming", "input-available", "output-available", "output-error"]) {
+			const part = { type: "tool-rename_session", toolCallId: "rename-1", state, input: { title: "Limites" }, output: { ok: true, title: "Limites" } } as LhViewPart;
+			assert.equal(renderToStaticMarkup(<ToolPartRenderer part={part} />), "", state);
+		}
+	});
+
 	it("ordinary host tools without dedicated presentation can acquire plugin renderers", async () => {
 		let mounted = false;
 		const h = await harness({ activate(ctx) { ctx.registerToolRenderer({ toolName: "web_search", mount(container) { mounted = true; container.textContent = "custom search display"; } }); } });

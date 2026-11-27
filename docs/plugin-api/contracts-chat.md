@@ -16,6 +16,7 @@
 - [SideChatAnchor](#sidechatanchor) — supporting declaration
 - [SideChatMessage](#sidechatmessage) — supporting declaration
 - [SideChatThread](#sidechatthread) — supporting declaration
+- [TitleSource](#titlesource) — supporting declaration
 - [TurnUsage](#turnusage) — supporting declaration
 
 ## CallUsage
@@ -153,6 +154,7 @@ Usage, images, plan state and side conversations are session-owned records.
 export interface ChatRecord {
     id: string;
     title: string;
+    titleSource?: TitleSource;
     createdAt: string;
     updatedAt: string;
     messages: LhMessage[];
@@ -167,12 +169,13 @@ export interface ChatRecord {
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TitleSource](contracts-chat.md#titlesource), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
 - [id](#chatrecord-id)
 - [title](#chatrecord-title)
+- [titleSource](#chatrecord-titlesource)
 - [createdAt](#chatrecord-createdat)
 - [updatedAt](#chatrecord-updatedat)
 - [messages](#chatrecord-messages)
@@ -195,6 +198,15 @@ id: string;
 
 ```ts
 title: string;
+```
+
+### ChatRecord titleSource
+
+Fork (docs/session-titles.md): who set the title. Absent on records
+written before the field; read through effectiveTitleSource.
+
+```ts
+titleSource?: TitleSource;
 ```
 
 ### ChatRecord createdAt
@@ -873,6 +885,21 @@ context cutoff. Current delivery uses immutable native update entries.
 
 ```ts
 contextSnapshot?: SideChatMessage[];
+```
+
+## TitleSource
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+Fork (docs/session-titles.md): who set a session's title. auto = derived
+from the learner's first message at creation; agent = chosen by the tutor
+with rename_session; user = typed or chosen by the learner (a manual
+rename, or a course's name at creation). A user title is never replaced
+automatically. Records without the field are read by
+core/session-title.ts effectiveTitleSource.
+
+```ts
+export type TitleSource = "auto" | "agent" | "user";
 ```
 
 ## TurnUsage

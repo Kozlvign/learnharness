@@ -27,6 +27,8 @@ export * from "./render-settings.ts";
 
 export * from "./question-core.ts";
 export type { CourseSeedDetails, CreateCourseResult } from "./course.ts";
+// Fork: session titles chosen by the tutor (docs/session-titles.md).
+export * from "./session-title.ts";
 // The event bus (push architecture, 2026-10-02): vocabulary + emit/subscribe
 // for every layer; the browser shell consumes the types + the runtime names
 // through this barrel (shell law: pure core via @/src/core only).

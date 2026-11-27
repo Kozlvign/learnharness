@@ -1220,6 +1220,9 @@ export function Chat({
 		if (!record) return;
 		if (Array.isArray(record.turns)) setTurns(record.turns);
 		setPricing(record.pricing);
+		// Fork (docs/session-titles.md): adopt the saved title (a rename the
+		// live chat-renamed event missed); an open edit keeps its own draft.
+		if (typeof record.title === "string" && record.title) setTitleText(record.title);
 		// The continuation seam (contracts.ts protocol §4): a job result
 		// landing in the record leaves the agent owing a continuation — the
 		// record ENDS on un-consumed results, the dock owns no question, and
@@ -1638,6 +1641,12 @@ export function Chat({
 		// (emitted by the compaction write itself) carries the marker in.
 		if (p.chatId !== chatId) return;
 		setCompacting(p.running);
+	});
+	// Fork (docs/session-titles.md): the tutor's rename_session (or a rename in
+	// another window) lands in the header at once, mid-turn included. Only the
+	// shown title changes; an open edit keeps its own draft.
+	useServerEvent("chat-renamed", (p) => {
+		if (p.chatId === chatId) setTitleText(p.title);
 	});
 	useServerEvent("record-changed", (p) => {
 		// The silent dismissal write (A2, 2026-10-03): no turn ever ran, so

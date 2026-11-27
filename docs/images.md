@@ -8,7 +8,7 @@ You can send the tutor images with your messages: a screenshot of an exercise, a
 
 Up to 8 images per message, with or without text. Thumbnails show above the text while they attach; hover one to remove it, click it to see it full size. Sent images appear in your message in the conversation, and clicking one opens it full size (Esc closes it).
 
-It works in a running session, while the tutor is still answering (the image rides with your steering message), on **New session** and on the home screen, so a session can start from a screenshot alone. Such a session is named "Image" until you rename it.
+It works in a running session, while the tutor is still answering (the image rides with your steering message), on **New session** and on the home screen, so a session can start from a screenshot alone. Such a session is named "Image" until the tutor names it or you rename it ([session titles](session-titles.md)).
 
 The images go to the tutor's model as images. Every Claude model sees them, including through the Claude connection. When the model in use cannot see images, it gets a short note instead and tells you so, so pick a model that can, or describe the image in words.
 

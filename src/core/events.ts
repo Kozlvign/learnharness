@@ -43,6 +43,11 @@ export interface ServerEvents {
 	/** Fork: Anki cards (docs/anki.md). A chat's records in the card ledger
 	 *  changed: an open view of the chat re-reads the cards it shows. */
 	"anki-changed": { chatId: string };
+	/** Fork (docs/session-titles.md): a session's title changed — a manual
+	 *  rename or the tutor's rename_session, including mid-turn. Carries
+	 *  the new title so open views update in place; chats-changed still
+	 *  fires for list consumers. */
+	"chat-renamed": { chatId: string; title: string };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -65,6 +70,8 @@ export const SERVER_EVENT_TYPES = [
 	"plugin-message",
 	// Fork: Anki cards (docs/anki.md).
 	"anki-changed",
+	// Fork: session titles (docs/session-titles.md).
+	"chat-renamed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: distribute over the vocabulary so narrowing `type`

@@ -24,7 +24,7 @@ export function tutorLanguageNote(settings: LanguageSettings): string | null {
 	const name = NAMES[locale];
 	const lines = [
 		"<learner_language>",
-		`The learner reads ${name}. Write everything the learner will read in ${name}: teaching prose, questions, answer options, hints, feedback, plans and plan node titles, summaries, research and PDF briefs, figure and demo text, and concept names for the knowledge graph.`,
+		`The learner reads ${name}. Write everything the learner will read in ${name}: teaching prose, questions, answer options, hints, feedback, plans and plan node titles, session titles, summaries, research and PDF briefs, figure and demo text, and concept names for the knowledge graph.`,
 		`This holds when the learner's sources, earlier messages, tool results or the examples in these instructions are in another language.`,
 		"Keep unchanged: tool names, JSON keys, ids, enum values and other machine-read fields; code, commands and identifiers; math notation; titles of cited works. When exact wording from a source matters, quote it in the original language and add a translation.",
 	];

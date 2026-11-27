@@ -22,9 +22,11 @@ import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE }
 import { createReadTool, readTool } from "./tools/read.ts";
 import { ANKI_CARD_TOOL } from "../core/anki/contract.ts";
 import { CREATE_COURSE_TOOL } from "../core/course.ts";
+import { RENAME_SESSION_TOOL, sessionTitleContextNote } from "../core/session-title.ts";
 import { quizInputObject, quizInputProblems, quizOptionExplanationProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
+import type { ChatStore } from "../core/ports.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
@@ -63,7 +65,7 @@ export type AgentKind = "prober" | "teacher" | "practice";
 export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
-	ANKI_CARD_TOOL, CREATE_COURSE_TOOL,
+	ANKI_CARD_TOOL, CREATE_COURSE_TOOL, RENAME_SESSION_TOOL,
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
@@ -211,7 +213,9 @@ function makeQuestionStopper(kind: AgentKind) {
 }
 
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[], nodeExists?: (nodeId: string) => boolean,
-	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] }) {
+	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] },
+	/** Fork (docs/session-titles.md): the `<session_title>` note, last in the prompt. */
+	sessionNote?: string) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
@@ -242,8 +246,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const problemTools = kind === "practice" && practice && opts.chatId
 		? pluginProblemTools(contributions?.problemTypes ?? [], opts.chatId, practice.gate, practice.graphNodes) : [];
 	// Never replace the builtin prompt or tools, or mutate an already-running Agent.
-	const systemPrompt = contributions?.instructions.length
-		? [builtinPrompt, ...contributions.instructions].join("\n\n---\n\n")
+	// Fork (docs/session-titles.md): the per-session title note goes last, after
+	// the stable builtin and plugin text, so only it changes on a rename.
+	const promptTail = [...(contributions?.instructions ?? []), ...(sessionNote ? [sessionNote] : [])];
+	const systemPrompt = promptTail.length
+		? [builtinPrompt, ...promptTail].join("\n\n---\n\n")
 		: builtinPrompt;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
@@ -345,7 +352,16 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
  * handler keys teacher construction on.
  */
 export function createProberAgent(ctx: ProberToolContext, opts: AgentBuildOptions = {}) {
-	return baseAgentOptions("prober", opts, Object.values(createProberTools(ctx, opts.toolToggles)));
+	return baseAgentOptions("prober", opts, Object.values(createProberTools(ctx, opts.toolToggles)), undefined, undefined, sessionNoteOf(ctx));
+}
+
+/** Fork (docs/session-titles.md): the title note for a registry that carries
+ *  rename_session, read from the record when the turn's agent is built. The
+ *  read is defensive: tests construct agents over partial contexts. */
+function sessionNoteOf(ctx: { chatId?: string; chatStore?: Pick<ChatStore, "getChat"> } | undefined): string | undefined {
+	if (!ctx?.chatId || typeof ctx.chatStore?.getChat !== "function") return undefined;
+	const record = ctx.chatStore.getChat(ctx.chatId);
+	return record ? sessionTitleContextNote(record) : undefined;
 }
 
 /**
@@ -365,7 +381,7 @@ export function createTeacherAgent(
 	// Fork: Anki cards (docs/anki.md).
 	return baseAgentOptions("teacher", opts, withExtraTools(tools, opts), ctx
 		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false
-		: undefined);
+		: undefined, undefined, opts.tools === undefined ? sessionNoteOf(ctx) : undefined);
 }
 
 /** The bare teach question set (tests, bare agents): quiz with the shared
@@ -413,7 +429,7 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 	// Fork: Anki cards (docs/anki.md) ride on top of either registry.
 	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, withExtraTools(opts.tools, opts));
 	const gate = createPracticeGate(ctx);
-	return baseAgentOptions("practice", opts, withExtraTools(practiceTools(ctx, gate), opts), undefined, { gate, graphNodes: ctx.graphNodes });
+	return baseAgentOptions("practice", opts, withExtraTools(practiceTools(ctx, gate), opts), undefined, { gate, graphNodes: ctx.graphNodes }, sessionNoteOf(ctx));
 }
 
 // Fork: Anki cards (docs/anki.md).

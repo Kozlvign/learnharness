@@ -33,6 +33,7 @@ import {
 } from "./native-messages.ts";
 import { readPluginQuestionMessageAnnotation, readPluginQuestionAnswer, readPluginQuestionCancellation } from "./plugin-questions.ts";
 import { readPluginProblemSnapshot, readPluginProblemSubmission, pluginProblemById } from "./plugin-problems.ts";
+import { RENAME_SESSION_TOOL } from "./session-title.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 
 /** The practice join context (owner-approved, 2026-10-06 export round):
@@ -208,7 +209,8 @@ export function messageMarkdown(
 		}
 	} else if (role === "toolResult") {
 		const result = message as ToolResultMessage;
-		if (result.isError || result.toolName === SEND_TO_USER_TOOL) return null; // retry context or output ack, not learning evidence
+		// Fork (docs/session-titles.md): a rename ack is not learning evidence either.
+		if (result.isError || result.toolName === SEND_TO_USER_TOOL || result.toolName === RENAME_SESSION_TOOL) return null; // retry context or output ack, not learning evidence
 		const { heading, body } = toolResultBody(result, ctx);
 		parts.push(`### ${heading}${anchor}\n\n${citationsToReadableText(body.join("\n\n"))}`);
 	}

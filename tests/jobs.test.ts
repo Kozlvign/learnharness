@@ -1589,12 +1589,14 @@ describe("prompt composition", () => {
 		// teacher turn until the numeric-prefix filter stopped it. This guard
 		// catches the sibling failure mode — an accidental dump pasted into a
 		// fragment. Thresholds: largest real fragment is 40-demos.md at ~3.2k
-		// chars; 8k is generous headroom. Composed total ≤ 60k chars.
+		// chars; 8k is generous headroom. Composed total ≤ 64k chars (fork,
+		// docs/session-titles.md: raised from 60k when the session-title
+		// doctrine brought the teacher to ~59.9k).
 		for (const f of fs.readdirSync("src/agent/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f))) {
 			const body = fs.readFileSync(`src/agent/prompts/${f}`, "utf-8").trim();
 			assert.ok(body.length <= 8_000, `fragment ${f} is ${body.length} chars — over the 8k guard`);
 		}
-		assert.ok(composeInstructions("teacher").length <= 60_000, "composed system prompt over the 60k guard");
+		assert.ok(composeInstructions("teacher").length <= 64_000, "composed system prompt over the 64k guard");
 	});
 });
 
