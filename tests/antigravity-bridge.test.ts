@@ -40,7 +40,7 @@ const models = [
 	{ id: "fixed-test", name: "Fixed Test", levels: [], contextWindow: 131_072 },
 ];
 type Step = { text?: string; thought?: string; calls?: Array<{ name: string; args: Record<string, unknown> }>; native?: string };
-function script(steps: Step[]): void { fs.mkdirSync(profile, { recursive: true }); fs.writeFileSync(path.join(profile, "fake-script.json"), JSON.stringify({ steps })); }
+function script(steps: Step[], options: { cancel?: "ignore" } = {}): void { fs.mkdirSync(profile, { recursive: true }); fs.writeFileSync(path.join(profile, "fake-script.json"), JSON.stringify({ steps, ...options })); }
 function events(kind?: string): any[] {
 	let text = "";
 	try { text = fs.readFileSync(path.join(profile, "fake-log.jsonl"), "utf8"); } catch { return []; }
@@ -90,6 +90,7 @@ function agent(messages: any[], tools: any[] = [lookupTool, quizTool], prompt = 
 const transcript = (a: InstanceType<typeof Agent>) => a.state.messages.filter((m: any) => m.role !== "system");
 const assistants = (a: InstanceType<typeof Agent>) => transcript(a).filter((m: any) => m.role === "assistant") as any[];
 const text = (a: InstanceType<typeof Agent>) => assistants(a).flatMap((m) => m.content).filter((c: any) => c.type === "text").map((c: any) => c.text);
+const images = (blocks: any[]) => blocks.filter((block) => block.type === "image");
 
 test("catalog: the account's models with agy's thinking levels, real windows and zero cost", () => {
 	const pro = antigravityModel("gemini-test-pro")!;
@@ -164,8 +165,56 @@ test("a posed question waits in the live session; the graded answer arrives as i
 	a = agent(answered);
 	await a.continue();
 	assert.equal(launches().length, 1, "no new agy process for the answer");
+	assert.equal(events("cancel").length, 0, "a text answer goes straight back over MCP");
 	assert.equal(events("result")[0].content[0].text, "Learner answered 56: correct.");
 	assert.deepEqual(text(a), ["Correct!"]);
+});
+
+test("an answer with an image ends the open turn in place and arrives in a new prompt", async () => {
+	script([{ calls: [{ name: "quiz", args: { question: "Sketch y = x²." } }] }, { text: "Nice parabola." }]);
+	let a = agent([]);
+	await a.prompt("Quiz me.");
+	const answered = transcript(a).map((m: any) => m.role === "toolResult" ? { ...m, content: [{ type: "text", text: "Learner answered with a sketch." }, { type: "image", data: "U0tFVENI", mimeType: "image/png" }] } : m);
+	a = agent(answered);
+	await a.continue();
+	assert.equal(launches().length, 1, "no new agy process for the answer");
+	assert.equal(events("session/resume").length, 0);
+	assert.equal(events("cancel").length, 1);
+	assert.equal(events("result").length, 0, "the answer does not go back over MCP");
+	const [first, second] = events("prompt");
+	assert.equal(second.sessionId, first.sessionId, "the same agy session");
+	const delivered = JSON.stringify(second.prompt);
+	assert(delivered.includes("Learner answered with a sketch.") && delivered.includes("paused"));
+	assert.deepEqual(images(second.prompt), [{ type: "image", data: "U0tFVENI", mimeType: "image/png" }]);
+	assert.deepEqual(text(a), ["Nice parabola."]);
+});
+
+test("a note with an image sent while a call is open arrives with the call's result in a new prompt", async () => {
+	script([{ calls: [{ name: "quiz", args: { question: "2 + 2?" } }] }, { text: "I see your working." }]);
+	let a = agent([]);
+	await a.prompt("Quiz me.");
+	const answered = transcript(a).map((m: any) => m.role === "toolResult" ? { ...m, content: [{ type: "text", text: "Learner answered 4." }] } : m);
+	a = agent(answered);
+	await a.prompt({ role: "user", content: [{ type: "text", text: "My working:" }, { type: "image", data: "V09SSw==", mimeType: "image/png" }], timestamp: Date.now() } as any);
+	assert.equal(launches().length, 1);
+	assert.equal(events("cancel").length, 1);
+	assert.equal(events("result").length, 0);
+	const delivered = events("prompt")[1].prompt;
+	assert(JSON.stringify(delivered).includes("Learner answered 4.") && JSON.stringify(delivered).includes("My working:"));
+	assert.deepEqual(images(delivered), [{ type: "image", data: "V09SSw==", mimeType: "image/png" }]);
+	assert.deepEqual(text(a), ["I see your working."]);
+});
+
+test("when agy does not end the turn on cancel, the session resumes in a new process with the results and their images", async () => {
+	script([{ calls: [{ name: "picture", args: {} }] }, { text: "Got it." }], { cancel: "ignore" });
+	const a = agent([], [pictureTool]);
+	await a.prompt("Draw.");
+	assert.equal(launches().length, 2);
+	assert.equal(events("session/resume")[0].sessionId, events("session/new")[0].sessionId);
+	const delivered = events("prompt").at(-1).prompt;
+	assert(JSON.stringify(delivered).includes("paused"));
+	assert.deepEqual(images(delivered), [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]);
+	assert.deepEqual(text(a), ["Got it."]);
 });
 
 test("calls the model makes together come back as one response", async () => {
@@ -184,12 +233,19 @@ test("agy's own tools are refused", async () => {
 	assert.deepEqual(events("permission")[0], { kind: "permission", tool: "run_command", outcome: { outcome: "selected", optionId: "deny" } });
 });
 
-test("images travel natively, in the prompt and in tool results", async () => {
+test("images reach the model natively: in the prompt, and from tool results in a new prompt in the same process", async () => {
 	script([{ calls: [{ name: "picture", args: {} }] }, { text: "Nice." }]);
 	const a = agent([], [pictureTool]);
 	await a.prompt({ role: "user", content: [{ type: "text", text: "Look:" }, { type: "image", data: "AAAA", mimeType: "image/png" }], timestamp: Date.now() } as any);
 	assert.deepEqual(events("prompt")[0].prompt, [{ type: "text", text: "Look:" }, { type: "image", data: "AAAA", mimeType: "image/png" }]);
-	assert.deepEqual(events("result")[0].content[1], { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" });
+	// agy would save an image in an MCP result to a file the model cannot open.
+	assert.equal(launches().length, 1, "the same agy process");
+	assert.equal(events("cancel").length, 1, "the open call's turn is cancelled in place");
+	assert.equal(events("result").length, 0, "no image goes back over MCP");
+	const delivered = events("prompt")[1].prompt;
+	assert(JSON.stringify(delivered).includes("Here it is."));
+	assert.deepEqual(images(delivered), [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]);
+	assert.deepEqual(text(a), ["Nice."]);
 });
 
 test("after a restart the session resumes from agy's files instead of replaying", async () => {
@@ -306,9 +362,12 @@ test("the PDF reader runs on the session's Antigravity model: rendered pages rea
 	assert.deepEqual(result.pagesRead, [1]);
 	assert.equal(launches().length, 1, "one agy process for the whole reading loop");
 	assert.equal(events("prompt")[0].level, "high", "the session's thinking level");
-	const rendered = events("result").find((entry) => entry.name === "pdf_render");
-	assert.ok(rendered, "the pdf_render call went through LearnHarness's MCP endpoint");
-	assert.ok(rendered.content.some((block: { type: string; mimeType?: string }) => block.type === "image" && block.mimeType === "image/png"), "the rendered page reached the model as an image");
+	assert.equal(events("permission")[0].tool, "pdf_render", "the pdf_render call went through LearnHarness's MCP endpoint");
+	assert.equal(events("cancel").length, 1, "the rendered page ends the open turn in place");
+	assert.equal(events("result").length, 0, "the rendered page does not go back over MCP");
+	const delivered = events("prompt")[1].prompt;
+	assert(delivered.some((block: { type: string; text?: string }) => block.type === "text" && block.text?.includes('name="pdf_render"')), "delivered as the pdf_render call's result");
+	assert.ok(images(delivered).some((block: { mimeType?: string }) => block.mimeType === "image/png"), "the rendered page reached the model as an image");
 	await until(() => sessions.liveSessionCount() === 0);
 });
 

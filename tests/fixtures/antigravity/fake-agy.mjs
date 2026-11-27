@@ -6,7 +6,8 @@
 //
 // Each model call takes the next step from <GEMINI_HOME>/fake-script.json:
 //   { text?, thought?, calls?: [{ name, args }], native?: "run_command" }
-// Everything it sees is appended to <GEMINI_HOME>/fake-log.jsonl.
+// With `cancel: "ignore"` in the script, `session/cancel` is logged but the
+// turn keeps running. Everything it sees is appended to <GEMINI_HOME>/fake-log.jsonl.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -183,6 +184,7 @@ function runAcp() {
 			if (message.method === "session/cancel") {
 				const session = sessions.get(message.params.sessionId);
 				log({ kind: "cancel", sessionId: message.params.sessionId });
+				if (readScript().cancel === "ignore") continue;
 				if (session) { session.cancelled = true; for (const controller of session.controllers) controller.abort(); }
 				continue;
 			}
