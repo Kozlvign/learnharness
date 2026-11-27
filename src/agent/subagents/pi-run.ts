@@ -6,6 +6,8 @@ import { usageWasAdmitted } from "../subscription-request-cycle.ts";
 import { createWorkerRequestScope } from "../worker-request-admission.ts";
 import { providerEventObserver } from "../provider-events.ts";
 import { backgroundCaptureStream, createBackgroundCapture } from "../background-capture.ts";
+import { releaseTaggedSessions } from "../antigravity/session.ts";
+import { ANTIGRAVITY_PROVIDER } from "../../core/contracts/antigravity.ts";
 import type { ModelRole } from "../../../config.ts";
 
 /**
@@ -70,6 +72,13 @@ export function subagentEngine(role: ModelRole | undefined, override?: PiEngine)
 	if (override) return override;
 	if (!role) throw new Error("An explicit engine or configured model role is required");
 	return piEngineFor(role);
+}
+
+/** Fork: an Antigravity run is a whole `agy` process. A one-shot helper run
+ *  (its own sessionId) releases what it opened as soon as it ends instead of
+ *  leaving the process idle in the six-session pool for ten minutes. */
+export function releaseOneShotSessions(engine: PiEngine, sessionId: string): void {
+	if (engine.model.provider === ANTIGRAVITY_PROVIDER) void releaseTaggedSessions(sessionId).catch(() => {});
 }
 
 export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRunOptions): Promise<SubagentRunResult> {
@@ -160,6 +169,7 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 		opts.abortSignal?.removeEventListener("abort", onAbort);
 		requests?.close();
 		capture?.finish(runFailure);
+		releaseOneShotSessions(engine, sessionId);
 	}
 
 	if (aborted || opts.abortSignal?.aborted) {

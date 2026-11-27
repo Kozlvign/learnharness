@@ -21,14 +21,16 @@
  *     it, and the stage flips to the pickers on its own. No Settings
  *     round-trip anymore; the draft lives in the caller's state,
  *     untouched throughout.
- *   Stage 2 — Strong → Cheap → Vision pickers over the FEDERATED catalog
+ *   Stage 2 — Strong → Vision pickers over the FEDERATED catalog
  *     (keyed providers only), the vision slot filtered to image-capable
  *     models, in the app's shared dropdown language (ModelMenuList).
  *     Saved disconnected selections and edits are retained internally in
- *     the exclusive provider stage. Connecting with all slots already saved
- *     closes setup; otherwise the pickers require only the missing slots.
- *     All three required (owner: no skip, no defaults); Save PUTs the
- *     models section and reports onDone(models).
+ *     the exclusive provider stage. Connecting with Strong already saved
+ *     closes setup; otherwise the pickers require it. The helpers follow
+ *     the session's model (owner, 2026-11-27): Strong is required (no
+ *     defaults), Vision is optional (its menu's "None" row clears it) and
+ *     the unused Cheap slot is not offered — a stored one rides along
+ *     unchanged. Save PUTs the models section and reports onDone(models).
  *
  * Closable without configuring (Esc/backdrop/✕) — browsing the app stays
  * possible; the GATE is the send interception, not the dialog. The
@@ -58,14 +60,15 @@ import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/t
 import { ThinkingMenuList } from "@/components/settings/model-menu";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
-/** The pickers' slot identity — same roster language as the Agent
- *  section's slot rows. */
-const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-	strong: { label: "Strong", roster: "Prober, teacher" },
-	cheap: { label: "Cheap", roster: "Researcher, demo builder, extractor, auditor" },
-	vision: { label: "Vision", roster: "Visual maker + PDF reader" },
+/** The slots setup offers, in order (owner, 2026-11-27). */
+const SLOT_ORDER = ["strong", "vision"] as const satisfies readonly ModelSlotName[];
+type SetupSlot = (typeof SLOT_ORDER)[number];
+
+/** The pickers' slot identity. */
+const SLOT_META: Record<SetupSlot, { label: string; roster: string }> = {
+	strong: { label: "Strong", roster: "Prober, teacher and their assistants" },
+	vision: { label: "Vision", roster: "Visual maker + PDF reader, when the main model is text-only" },
 };
-const SLOT_ORDER: readonly ModelSlotName[] = ["strong", "cheap", "vision"];
 
 /** The GET /api/models response fields the flow consumes. */
 interface ModelsBody {
@@ -361,7 +364,8 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 	// closing an already-configured setup. No saved model/thinking writes.
 	if (closeAfterConnection) return null;
 
-	const allPicked = SLOT_ORDER.every((s) => picked[s]);
+	// Only Strong is required; Vision is the optional text-only fallback.
+	const allPicked = !!picked.strong;
 
 	/** Stage 1's save: PUT the pasted key, dispatch the keys signal, and
 	 *  CLEAN the local key field. The fresh catalog decides whether to
@@ -393,8 +397,13 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		setSaving(true);
 		setError(null);
 		const models: ModelsSettings = {};
+		// The replace-PUT keeps a stored Cheap slot as it is (older versions
+		// still read it); setup never edits it.
+		const cheap = catalog?.slots.cheap;
+		if (cheap?.model) models.cheap = cheap;
 		for (const slot of SLOT_ORDER) {
 			const level = levels[slot];
+			if (!picked[slot]) continue;
 			models[slot] = {
 				// Advanced controls stay out of setup; never erase their saved choice.
 				...(catalog?.slots[slot]?.cacheRetention !== undefined ? { cacheRetention: catalog.slots[slot]!.cacheRetention } : {}),
@@ -465,7 +474,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 				) : (
 					<div className="flex flex-col gap-4 overflow-y-auto px-6 py-5" data-testid="setup-stage-pickers">
 						<p className="text-xs text-muted-foreground">
-							Pick the model for each tier. All three are required before chats can start.
+							Pick your main model. Vision is optional: it only draws figures and reads PDFs when the main model can't see images.
 						</p>
 						{SLOT_ORDER.map((slot) => {
 							const entry = picked[slot];
@@ -481,17 +490,24 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 								<div key={slot} data-testid={`setup-slot-${slot}`} className="flex flex-col gap-1.5">
 									<span className="flex items-center gap-1.5">
 										<span className="font-ui text-sm text-foreground">{SLOT_META[slot].label}</span>
-										{!catalog?.slots?.[slot]?.model && !picked[slot] && (
+										{slot === "strong" ? !catalog?.slots?.[slot]?.model && !picked[slot] && (
 											<span
 												data-testid={`setup-needed-${slot}`}
 												className="rounded-sm border border-border px-1 py-0.5 text-[10px] font-normal tracking-wide text-muted-foreground"
 											>
 												needed
 											</span>
+										) : (
+											<span
+												data-testid={`setup-optional-${slot}`}
+												className="rounded-sm border border-border px-1 py-0.5 text-[10px] font-normal tracking-wide text-muted-foreground"
+											>
+												optional
+											</span>
 										)}
 									</span>
 									<span className="text-xs text-muted-foreground/70">{SLOT_META[slot].roster}</span>
-									{slot !== "strong" && <><ChatGPTBackgroundAccess provider={entry?.provider} /><NativeSubscriptionBackgroundAccess provider={entry?.provider} /><ClaudeBackgroundAccess provider={entry?.provider} /><AntigravityBackgroundAccess provider={entry?.provider} /></>}
+									<ChatGPTBackgroundAccess provider={entry?.provider} /><NativeSubscriptionBackgroundAccess provider={entry?.provider} /><ClaudeBackgroundAccess provider={entry?.provider} /><AntigravityBackgroundAccess provider={entry?.provider} />
 									<div className="flex items-center gap-2">
 										<div className="relative flex-1">
 											<Hint label={entry ? `${entry.provider}:${entry.id}` : "Pick a model…"}>
@@ -532,6 +548,16 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 														effectiveId={entry?.id}
 														effectiveProvider={entry?.provider}
 														vision={slot === "vision"}
+														none={slot === "vision" ? {
+															label: "None — use the session's model",
+															selected: !entry,
+															onPick: () => {
+																editedSlots.current.add(slot);
+																setPicked((prev) => { const next = { ...prev }; delete next[slot]; return next; });
+																setLevels((prev) => { const next = { ...prev }; delete next[slot]; return next; });
+																setOpenMenu(null);
+															},
+														} : undefined}
 														onPick={(m) => {
 															editedSlots.current.add(slot);
 															setPicked((prev) => ({ ...prev, [slot]: m }));

@@ -22,7 +22,7 @@ Output is excluded; one-hour writes are a subset of writes and are not counted t
 
 ## Prompt-cache retention
 
-Under **Settings → Agent → Models → Show advanced settings**, each Strong/Cheap/Vision slot has a **Cache** dropdown. Hiding advanced settings does not reset it.
+Under **Settings → Agent → Models → Show advanced settings**, the Strong and Vision slots each have a **Cache** dropdown. Hiding advanced settings does not reset it.
 
 | Choice | Request behavior |
 | --- | --- |

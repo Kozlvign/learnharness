@@ -161,7 +161,7 @@ describe("setup polish interactions", () => {
 
 	it("model and thinking dropdowns keep outside-click dismissal and model guidance uses two sentences", async () => {
 		await mount({ keyed: true });
-		assert.equal(element('[data-testid="setup-stage-pickers"] > p').textContent, "Pick the model for each tier. All three are required before chats can start.");
+		assert.equal(element('[data-testid="setup-stage-pickers"] > p').textContent, "Pick your main model. Vision is optional: it only draws figures and reads PDFs when the main model can't see images.");
 		await click(element('[data-testid="setup-trigger-strong"]'));
 		await click(element('[data-testid="setup-dialog"] h2'));
 		assert.equal(document.querySelector('[data-testid="setup-menu-strong"]'), null);

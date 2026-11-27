@@ -78,7 +78,7 @@ First generation assigns a proposition to its birth-source deck. Repeated genera
 
 Repeated generation preserves manual edits, existing cards, review history, and the proposition's schedule. It adds useful missing cards rather than replacing what is already there. The exact creation timing of initially needed source decks, including zero-card results and failed chunks, remains an implementation-plan decision.
 
-Generation follows LearnHarness's current **cheap model slot** unless the learner has explicitly configured a plugin-specific model/thinking override. Clearing the override returns to following the slot. The slot is resolved when generation starts, not copied permanently into plugin settings. An unavailable or unconfigured model produces an explicit error, not a silent fallback.
+Generation follows LearnHarness's current **Strong model slot** (the Cheap slot is no longer used, 2026-11-27) unless the learner has explicitly configured a plugin-specific model/thinking override. Clearing the override returns to following the slot. The slot is resolved when generation starts, not copied permanently into plugin settings. An unavailable or unconfigured model produces an explicit error, not a silent fallback.
 
 The worker must be able to repair an invalid submission in the same conversation. A failed output validation is feedback for correction, not a reason to discard the context and start over. Runs are bounded, and failure to produce an accepted result must not be presented as successful generation.
 

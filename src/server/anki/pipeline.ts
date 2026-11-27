@@ -35,8 +35,7 @@
  * wire the real ones.
  */
 
-import { ROLE_SLOT, ModelsNotConfiguredError, ProviderKeyMissingError } from "../../core/settings.ts";
-import { resolveRoleSpec } from "../../core/settings-resolution.ts";
+import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../../core/settings.ts";
 import { CLAUDE_CODE_PROVIDER } from "../../core/contracts/claude-code.ts";
 import type { ChatRecord } from "../../core/contracts/chat.ts";
 import { subscribe as subscribeToBus, type ServerEventListener } from "../../core/events.ts";
@@ -59,7 +58,7 @@ import {
 } from "../../core/anki/contract.ts";
 import { ankiMatchMiss, ankiMissesOf, ankiTranscriptExcerpt, ankiTutorRepliedAfter, ankiTutorRepliesAfter } from "../../core/anki/misses.ts";
 import { ankiDeckName, ankiNoteFields, ankiTags } from "../../core/anki/format.ts";
-import { piEngineForSpec, type PiEngine } from "../../agent/models.ts";
+import type { PiEngine } from "../../agent/models.ts";
 import { languageSettings } from "../../agent/language.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed } from "../../agent/subscription-connections.ts";
 import {
@@ -70,8 +69,8 @@ import {
 	writeAnkiCards,
 } from "../../agent/subagents/anki-writer.ts";
 import { providerKeyPresent } from "../keys.ts";
-import { refreshConnectionCatalog } from "../model-catalog.ts";
 import { stores } from "../stores.ts";
+import { sessionSubagentEngine } from "../subagent-engines.ts";
 import {
 	AnkiActionError,
 	AnkiNoteGoneError,
@@ -113,9 +112,10 @@ export interface AnkiPipelineDeps {
 	updateLedger<T>(mutate: (ledger: AnkiLedger) => T | Promise<T>): Promise<T>;
 	client(settings: AnkiSettings): AnkiPipelineClient;
 	writer: AnkiWriter;
-	/** The writer's engine. undefined, or a throw, = no background model
-	 *  available: the misses keep waiting with ANKI_REASONS.noModel. */
-	engine(): PiEngine | undefined | Promise<PiEngine | undefined>;
+	/** The writer's engine for this chat's session. undefined, or a throw,
+	 *  = no background model available: the misses keep waiting with
+	 *  ANKI_REASONS.noModel. */
+	engine(chatId: string): PiEngine | undefined | Promise<PiEngine | undefined>;
 	/** The chat's folder path in the sources list, outermost first. */
 	folderPath(chatId: string): string[];
 	now(): Date;
@@ -301,7 +301,7 @@ export function createAnkiPipeline(deps: AnkiPipelineDeps): AnkiPipeline {
 
 	async function resolveEngine(chatId: string): Promise<PiEngine | undefined> {
 		try {
-			return await deps.engine();
+			return await deps.engine(chatId);
 		} catch (err) {
 			if (!(err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError)) {
 				console.error(`[anki ${chatId}] the background model could not be prepared:`, err);
@@ -670,18 +670,16 @@ function connectionBackgroundAllowed(provider: string): boolean {
 	return subscriptionBackgroundAllowed(provider) && (provider !== CLAUDE_CODE_PROVIDER || providerKeyPresent(provider));
 }
 
-/** The cheap slot, exactly as chat-handler's resolveEngine builds the
- *  extractor's engine (role override → slot), read fresh per run. A
- *  subscription connection's status is checked first, as chat-handler does
- *  before a turn (refreshConnectionCatalog): after a restart it is unknown
- *  until something asks, and the writer may run before any turn has. */
-async function resolveWriterEngine(): Promise<PiEngine | undefined> {
-	const spec = resolveRoleSpec("extractor", stores.settingsStore.readSettings());
-	if (!spec) return undefined;
-	await refreshConnectionCatalog(spec.provider);
-	if (!connectionBackgroundAllowed(spec.provider) || !providerKeyPresent(spec.provider)) return undefined;
-	const slot = ROLE_SLOT.extractor;
-	return piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[slot]?.cacheRetention);
+/** The session's teacher model, exactly as the extractor's engine resolves
+ *  for this chat (owner, 2026-11-27: chat.model → strong slot), read fresh
+ *  per run. The resolver checks the subscription's status first, as a turn
+ *  does: after a restart it is unknown until something asks, and the
+ *  writer may run before any turn has. A connection that disallows
+ *  background use means no model, so the misses wait. */
+async function resolveWriterEngine(chatId: string): Promise<PiEngine | undefined> {
+	const choice = await sessionSubagentEngine("extractor", chatId);
+	if ("refusal" in choice || !connectionBackgroundAllowed(choice.engine.model.provider)) return undefined;
+	return choice.engine;
 }
 
 function realDeps(): AnkiPipelineDeps {

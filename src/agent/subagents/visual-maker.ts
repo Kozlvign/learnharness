@@ -13,6 +13,7 @@ import type { PdfFigureImage, PdfFigureSource } from "../tools/pdf-figure.ts";
 import { embedLearnerImage, LEARNER_IMAGE_HREF } from "../../core/learner-image-svg.ts";
 import { annotationPlacementProblem } from "./annotation-svg.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
+import { releaseOneShotSessions } from "./pi-run.ts";
 
 /**
  * The visual-maker sub-agent (vision §2.5): authors ONE precise SVG from a
@@ -505,6 +506,7 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 	} finally {
 		requests.close();
 		capture?.finish(captureError);
+		releaseOneShotSessions(engine, sessionId);
 	}
 
 	// Iteration limit: deliver the last written SVG only if it was looked at.

@@ -212,7 +212,7 @@ interface Harness {
 	now: number;
 	chats: Map<string, ChatRecord>;
 	misses: Map<string, AnkiMiss[]>;
-	engine: () => PiEngine | undefined;
+	engine: (chatId: string) => PiEngine | undefined;
 	ledger: ReturnType<typeof memoryLedger>;
 	anki: ReturnType<typeof fakeClient>;
 	writer: ReturnType<typeof stubWriter>;
@@ -258,7 +258,7 @@ function harness(opts: {
 		updateLedger: (mutate) => h.ledger.update(mutate),
 		client: () => h.anki.factory(),
 		writer: (call) => h.writer.writer(call),
-		engine: () => h.engine(),
+		engine: (chatId) => h.engine(chatId),
 		folderPath: (id) => h.folders[id] ?? [],
 		now: () => new Date(h.now),
 		locale: () => "en",
@@ -721,7 +721,7 @@ describe("anki pipeline: no background model", () => {
 	it("treats a typed refusal from the resolver or the writer as no model", async () => {
 		const h = harness();
 		h.engine = () => {
-			throw new ProviderKeyMissingError("openrouter", ["cheap"]);
+			throw new ProviderKeyMissingError("openrouter", ["strong"]);
 		};
 		addChat(h, "c1", [miss("c1", 1)]);
 		await h.pipeline.run("c1");
@@ -729,7 +729,7 @@ describe("anki pipeline: no background model", () => {
 
 		h.engine = () => ENGINE;
 		h.writer.writer = async () => {
-			throw new ModelsNotConfiguredError(["cheap"]);
+			throw new ModelsNotConfiguredError(["strong"]);
 		};
 		await h.pipeline.run("c1");
 		assert.equal(h.ledger.cards[0]!.status, "waiting");
@@ -1523,10 +1523,21 @@ describe("anki card writer", () => {
 		);
 	});
 
+	it("the writer's engine is resolved for the chat's own session (owner, 2026-11-27)", async () => {
+		const h = harness();
+		const asked: string[] = [];
+		h.engine = (chatId) => { asked.push(chatId); return ENGINE; };
+		addChat(h, "c1", [miss("c1", 1)]);
+		addChat(h, "c2", [miss("c2", 1)]);
+		await h.pipeline.run("c1");
+		await h.pipeline.run("c2");
+		assert.deepEqual(asked, ["c1", "c2"]);
+	});
+
 	it("writeAnkiCards without an engine is a typed no-model refusal", async () => {
 		await assert.rejects(
 			writeAnkiCards({ chatId: "c1", misses: [miss("c1", 1)], transcripts: {}, existing: [], engine: undefined }),
-			ModelsNotConfiguredError,
+			(err: unknown) => err instanceof ModelsNotConfiguredError && err.envelope.missing.join() === "strong",
 		);
 		assert.deepEqual(await writeAnkiCards({ chatId: "c1", misses: [], transcripts: {}, existing: [], engine: undefined }), []);
 	});

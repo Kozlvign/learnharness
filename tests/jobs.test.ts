@@ -826,6 +826,52 @@ describe("pdf runner (sources v0)", () => {
 		assert.ok(steer.content.includes("integral rule"), "steer text carries the brief");
 	});
 
+	it("the pdf reader follows the session (owner, 2026-11-27): engineFor gets the job's chatId; the returned tier gates the key check", async () => {
+		const chat = chatStore.createChat("Test: pdf on the session model");
+		trackChat(chat.id);
+		chatStore.saveMessages(chat.id, nativeToolMessages("read this pdf", "pdf", "call-pdf-session", PDF_INPUT));
+		const job = jobStore.createJob({ kind: "pdf", chatId: chat.id, toolCallId: "call-pdf-session" });
+		trackJob(job.id);
+		const asked: Array<[string, string | undefined]> = [];
+		const checked: Array<[string, ModelSlotName]> = [];
+		const engine = pdfReaderModel();
+		const runner = createJobRunner({
+			chatStore, jobStore, deliver: fakeDeliver().deliver,
+			// An asynchronous resolver, as the server's (it checks the connection first).
+			engineFor: async (role, chatId) => { asked.push([role, chatId]); return { engine, tier: "strong" }; },
+			providerKeyMissing: (provider, tier) => { checked.push([provider, tier]); return null; },
+		});
+		await runner.runJob(job.id);
+		assert.deepEqual(asked, [["pdfReader", chat.id]]);
+		assert.deepEqual(checked, [[engine.model.provider, "strong"]], "the session's model counts against strong, not vision");
+		assert.equal(jobStore.getJob(job.id)!.status, "done");
+		assert.match((jobStore.getJob(job.id)!.result as PdfResult).brief, /integral rule/);
+	});
+
+	for (const [label, resolve, error] of [
+		["no vision model for a text-only session", async () => ({ refusal: { kind: "models", tier: "vision" } }), /No model configured.*\(missing: vision\)/],
+		["the session's connection is gone", async () => ({ refusal: { kind: "key", envelope: providerKeyMissing("antigravity", ["strong"]) } }), /No antigravity key is set/],
+		["the session's model left its catalog", async () => ({ refusal: { kind: "unavailable", tier: "strong", error: "The selected model is unavailable." } }), /The selected model is unavailable/],
+		["the resolver throws", async () => { throw new Error("catalog has no model gemini-x"); }, /catalog has no model gemini-x/],
+	] as const) {
+		it(`a resolver refusal (${label}) lands the job as an honest error and still steers`, async () => {
+			const chat = chatStore.createChat(`Test: pdf refusal ${label}`);
+			trackChat(chat.id);
+			const toolCallId = `call-pdf-refusal-${label.replace(/\W+/g, "-")}`;
+			chatStore.saveMessages(chat.id, nativeToolMessages("read this pdf", "pdf", toolCallId, PDF_INPUT));
+			const job = jobStore.createJob({ kind: "pdf", chatId: chat.id, toolCallId });
+			trackJob(job.id);
+			const delivery = fakeDeliver();
+			const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, engineFor: resolve as never });
+			await runner.runJob(job.id);
+			const done = jobStore.getJob(job.id)!;
+			assert.equal(done.status, "error");
+			assert.match(done.error ?? "", error);
+			assert.equal(delivery.steers.length, 1, "the teacher is not stranded");
+			assert.match((done.result as PdfResult).brief, /^PDF failed: /);
+		});
+	}
+
 	for (const mode of ["dispatch", "recovery"] as const) {
 		it(`resolves a home-relative PDF through aliased HOME from ${mode} input without rewriting history`, async () => {
 			assert.equal(os.homedir(), homeAlias);
@@ -1830,7 +1876,7 @@ describe("BYOK job refusal (no factory floor)", () => {
 		// finalizeJob flips the record to error after the delivery.
 		assert.equal(done.status, "error", "the job lands error, never a phantom run");
 		assert.match(done.error ?? "", /No model configured/);
-		assert.match(done.error ?? "", /missing: cheap/);
+		assert.match(done.error ?? "", /missing: strong/); // the researcher follows the session: strong tier
 		assert.equal(delivery.steers.length, 1, "the refusal STEERED — the teacher is not stranded");
 		assert.ok(
 			delivery.steers[0]!.content.includes("Research failed: No model configured"),
@@ -1874,8 +1920,8 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 		// honest record, kind failure shape steered, terminal flip after.
 		const done = jobStore.getJob(job.id)!;
 		assert.equal(done.status, "error", "the job lands error, never a phantom run");
-		assert.equal(done.error, providerKeyMissing(engine.model.provider, ["cheap"]).error, "the envelope's error line verbatim");
-		assert.deepEqual(seen, [[engine.model.provider, "cheap"]], "the check saw the engine's provider + the researcher's tier");
+		assert.equal(done.error, providerKeyMissing(engine.model.provider, ["strong"]).error, "the envelope's error line verbatim");
+		assert.deepEqual(seen, [[engine.model.provider, "strong"]], "the check saw the engine's provider + the researcher's tier");
 		assert.equal(delivery.steers.length, 1, "the refusal STEERED — the teacher is not stranded");
 		assert.ok(
 			delivery.steers[0]!.content.includes(`Research failed: No ${engine.model.provider} key is set`),

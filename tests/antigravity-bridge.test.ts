@@ -295,6 +295,23 @@ test("one-shot callers release the agy process they used", async () => {
 	assert.equal(sessions.liveSessionCount(), 0);
 });
 
+test("the PDF reader runs on the session's Antigravity model: rendered pages reach agy as images, and the run releases its process", async () => {
+	const { runPdfReaderAgent } = await import("../src/agent/subagents/pdf-reader.ts");
+	const pdf = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "sample-3page.pdf");
+	script([{ calls: [{ name: "pdf_render", args: { pages: "1" } }] }, { text: "Page 1 shows the integral rule (p. 1)." }]);
+	// The job runner's engine: background work on the session's model.
+	const engine = piEngineForSpec({ provider: "antigravity", id: "gemini-test-pro", thinkingLevel: "high" });
+	const result = await runPdfReaderAgent({ path: pdf, question: "What does page 1 show?" }, { engine });
+	assert.match(result.brief, /integral rule/);
+	assert.deepEqual(result.pagesRead, [1]);
+	assert.equal(launches().length, 1, "one agy process for the whole reading loop");
+	assert.equal(events("prompt")[0].level, "high", "the session's thinking level");
+	const rendered = events("result").find((entry) => entry.name === "pdf_render");
+	assert.ok(rendered, "the pdf_render call went through LearnHarness's MCP endpoint");
+	assert.ok(rendered.content.some((block: { type: string; mimeType?: string }) => block.type === "image" && block.mimeType === "image/png"), "the rendered page reached the model as an image");
+	await until(() => sessions.liveSessionCount() === 0);
+});
+
 test("agy's environment drops app secrets and keys, and isolates its profile", () => {
 	const env = antigravityEnv("/tmp/run-x", { PATH: "/bin", HOME: "/home/x", LH_DESKTOP_API_SECRET: "s".repeat(64), GEMINI_API_KEY: "g", GOOGLE_API_KEY: "k", OPENAI_API_KEY: "o", AGY_ACP_CCPA_PROJECT: "p", BROWSER: "x", NODE_OPTIONS: "--inspect" }, "linux");
 	assert.equal(env.PATH, "/bin");

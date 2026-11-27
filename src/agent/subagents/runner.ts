@@ -26,12 +26,13 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ModelRole } from "../../../config.ts";
-import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../../core/settings.ts";
+import { modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../../core/settings.ts";
 import type { ChatStore, JobStore } from "../../core/ports.ts";
 import { runDemoBuilder } from "./demo-builder.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
 import { runResearcherAgent } from "./researcher.ts";
 import { runVisualMaker } from "./visual-maker.ts";
+import { chooseSubagentEngine, type SubagentEngineChoice, type SubagentEngineFor } from "./engine-choice.ts";
 import { loadLearnerImage, type LearnerImage } from "../tools/learner-image.ts";
 import { loadPdfFigureSource, type PdfFigureSource } from "../tools/pdf-figure.ts";
 
@@ -77,13 +78,15 @@ export interface JobRunnerDeps {
 	 * on it. Its persisted pending obligation survives process restart.
 	 */
 	deliver: (steer: SteerMessage) => Promise<void>;
-	/** Settings-resolved engine per role (model slots wave, 2026-09-20):
-	 *  the role-override → slot chain, read FRESH per job (the server
-	 *  wiring passes effectiveSettings-based resolution). Test overrides
-	 *  (below) still win. BYOK (owner, 2026-09-22): the chain may end
-	 *  EMPTY → undefined; runJob then refuses the spawn honestly instead
-	 *  of guessing a model. */
-	engineFor?: (role: ModelRole) => PiEngine | undefined;
+	/** Settings-resolved engine per role (model slots wave, 2026-09-20),
+	 *  read FRESH per job. Helpers follow the session's teacher model
+	 *  (owner, 2026-11-27): the job's chatId rides along, and the server
+	 *  wiring resolves chat.model → strong, the vision slot only for a
+	 *  text-only session model. Test overrides (below) still win. BYOK
+	 *  (owner, 2026-09-22): the chain may end EMPTY → undefined (or a
+	 *  refusal); runJob then refuses the spawn honestly instead of
+	 *  guessing a model. A throw refuses the same way. */
+	engineFor?: SubagentEngineFor;
 	/** The search seam (search port wave, 2026-09-20): resolves the LIVE
 	 *  provider fresh per job — server/search.ts composition injected by
 	 *  the wiring; null = honestly unavailable (the researcher's web_search
@@ -172,14 +175,16 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	 *  tests swap scripted engines without touching deps), then the injected
 	 *  settings-resolved engineFor. undefined = the BYOK chain came up
 	 *  empty (owner, 2026-09-22) — runJob refuses below, honestly. */
-	function pickEngine(kind: BuiltinJobKind): PiEngine | undefined {
+	async function pickEngine(kind: BuiltinJobKind, chatId: string): Promise<SubagentEngineChoice> {
 		const testOverride: Record<string, { current?: PiEngine } | undefined> = {
 			researcher: researchModelOverride,
 			demoBuilder: demoModelOverride,
 			visualMaker: visualModelOverride,
 			pdfReader: pdfModelOverride,
 		};
-		return testOverride[KIND_ROLE[kind]]?.current ?? deps.engineFor?.(KIND_ROLE[kind]);
+		const role = KIND_ROLE[kind];
+		const test = testOverride[role]?.current;
+		return test ? chooseSubagentEngine(() => test, role) : chooseSubagentEngine(deps.engineFor, role, chatId);
 	}
 
 	const KIND_RUNNERS: Record<
@@ -205,7 +210,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			jobStore.updateJob(jobId, { status: "error", error: `unknown kind ${job.kind}`, activity: "failed" });
 			return;
 		}
-		const engine = pickEngine(job.kind);
+		const choice = await pickEngine(job.kind, job.chatId);
 		// The per-need refusal guards (BYOK 2026-09-22 / provider-key
 		// interlude 2026-09-25): no engine for the kind's tier, or the
 		// resolved engine's provider key gone — both refuse through the SAME
@@ -244,19 +249,28 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 								};
 			await finishJob(jobId, failure);
 		};
-		if (!engine) {
-			const tier = ROLE_SLOT[KIND_ROLE[job.kind]];
-			const envelope = modelsNotConfigured([tier]);
-			console.info(`[job ${jobId}] refused — ${JSON.stringify(envelope)}`);
-			await refuse(`${envelope.error} (missing: ${tier})`);
+		if ("refusal" in choice) {
+			const refusal = choice.refusal;
+			if (refusal.kind === "models") {
+				const envelope = modelsNotConfigured([refusal.tier]);
+				console.info(`[job ${jobId}] refused — ${JSON.stringify(envelope)}`);
+				await refuse(`${envelope.error} (missing: ${refusal.tier})`);
+			} else if (refusal.kind === "key") {
+				console.info(`[job ${jobId}] refused — ${JSON.stringify(refusal.envelope)}`);
+				await refuse(refusal.envelope.error);
+			} else {
+				console.info(`[job ${jobId}] refused — ${refusal.tier} model unavailable: ${refusal.error}`);
+				await refuse(refusal.error);
+			}
 			return;
 		}
+		const { engine, tier } = choice;
 		// Key presence (2026-09-25): the engine exists, but its provider's
 		// key may be gone — refuse the spawn BEFORE the loop, same
 		// convention (the injected check reads the key store; absent in
 		// engine-injecting tests).
 		const keyRefusal =
-			deps.providerKeyMissing?.(engine.model.provider, ROLE_SLOT[KIND_ROLE[job.kind]]) ?? null;
+			deps.providerKeyMissing?.(engine.model.provider, tier) ?? null;
 		if (keyRefusal) {
 			console.info(`[job ${jobId}] refused — ${JSON.stringify(keyRefusal)}`);
 			await refuse(keyRefusal.error);

@@ -132,6 +132,49 @@ export function resolveSideQuestionSpec(chat: ChatSettings | undefined, record: 
 	return { provider: model.provider, id: model.id, thinkingLevel: override?.thinkingLevel ?? conversation?.thinkingLevel };
 }
 
+/** One helper role's model under a session, and the slot tier it counts
+ *  against (refusals name it; its cache retention applies). */
+export interface SessionSubagentSpec {
+	/** undefined = no model on the chain; the caller refuses for `tier`. */
+	spec: EffectiveModelSpec | undefined;
+	tier: ModelSlotName;
+}
+
+/** Session helpers (owner, 2026-11-27): every helper role — researcher,
+ *  demo builder, visual maker, PDF reader, extractor, auditor (and the
+ *  Anki writer, which runs as the extractor) — runs on the SESSION'S OWN
+ *  teacher model: agent.models[role] override (field by field, like
+ *  resolveSideQuestionSpec) → chat.model → strong slot, the session's
+ *  thinking level riding along. Without a chat (notes import) the chain
+ *  starts at the strong slot.
+ *
+ *  The vision roles (ROLE_SLOT "vision") fall back to the vision slot ONLY
+ *  when the session's model is text-only — `acceptsImages` answers that
+ *  from the catalog (the server builds the engine first). Absent, the
+ *  session model is assumed to see images. An unknown or unavailable
+ *  session model must answer true, so the caller refuses on the session's
+ *  tier instead of silently switching to another provider. */
+export function resolveSessionSubagentSpec(
+	role: ModelRole,
+	chat: ChatSettings | undefined,
+	record: UserSettings | null,
+	opts: { acceptsImages?: (spec: EffectiveModelSpec) => boolean } = {},
+): SessionSubagentSpec {
+	const bg = BACKGROUND_MODEL_ROLES as readonly string[];
+	const override = bg.includes(role) ? record?.agent?.models?.[role as BackgroundModelRole] : undefined;
+	const conversation = resolveConversationSpec(chat, resolveSlot(record?.models?.strong));
+	const model = override?.model ?? (conversation ? { provider: conversation.provider, id: conversation.id } : undefined);
+	const session: EffectiveModelSpec | undefined = model
+		? { provider: model.provider, id: model.id, thinkingLevel: override?.thinkingLevel ?? conversation?.thinkingLevel }
+		: undefined;
+	if (!session || ROLE_SLOT[role] !== "vision" || (opts.acceptsImages?.(session) ?? true)) return { spec: session, tier: "strong" };
+	const vision = resolveSlot(record?.models?.vision);
+	return {
+		spec: vision ? { provider: vision.provider, id: vision.id, thinkingLevel: vision.thinkingLevel } : undefined,
+		tier: "vision",
+	};
+}
+
 /** Full-chain resolution for ANY role (BYOK, owner 2026-09-22):
  *  per-role override (background roles only) → SLOT → NOTHING. The
  *  conversation pair (prober/teacher) resolves the same chain MINUS the

@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { CUSTOM_PROVIDER, MODEL_SLOTS, type AuthKeyStatus, type ModelCatalogResponse } from "@/src/core";
+import { CUSTOM_PROVIDER, type AuthKeyStatus, type ModelCatalogResponse } from "@/src/core";
 import { classifyKeys, type ProviderKeyInfo } from "@/components/settings/keys-section";
 import { useModelCatalog } from "@/components/model-catalog";
 
@@ -38,9 +38,11 @@ export function hasProviderKey(
 	);
 }
 
-/** Completeness is saved identity, not current provider availability. */
+/** Completeness is saved identity, not current provider availability.
+ *  Only Strong is required: the helpers follow the session's model and
+ *  Vision is an optional fallback (owner, 2026-11-27; slotsConfigured). */
 export function savedSlotsConfigured(slots: ModelCatalogResponse["slots"] | undefined): boolean {
-	return MODEL_SLOTS.every((slot) => !!slots?.[slot]?.model);
+	return !!slots?.strong?.model;
 }
 
 /** Keep the last known completeness during connection invalidation, but

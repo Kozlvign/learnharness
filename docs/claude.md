@@ -8,7 +8,7 @@ It works the way [T3 Code](https://github.com/pingdotgg/t3code) does. LearnHarne
 
 1. Install Claude Code: on Windows run `irm https://claude.ai/install.ps1 | iex` in PowerShell, on macOS or Linux run `curl -fsSL https://claude.ai/install.sh | bash`. See [the setup guide](https://code.claude.com/docs/en/setup).
 2. In LearnHarness, open **Settings → Providers → Claude → Connect**. If Claude Code is not signed in, select **Sign in**. A terminal opens with `claude auth login`, and Claude Code finishes sign-in in your browser. The dialog updates on its own.
-3. Choose Claude models for your model slots, for example Claude Opus for *Strong* and Claude Sonnet for *Cheap* and *Vision*.
+3. Choose a Claude model for *Strong*, for example Claude Opus. A session's helpers run on the session's own model, and Claude models read images, so *Vision* can stay empty.
 
 The dialog shows the signed-in account and plan, and how much of your plan's 5-hour and weekly limits you have used so far. It also has the **Allow background use** switch: with it off, helper agents and automatic follow-ups never use your plan.
 

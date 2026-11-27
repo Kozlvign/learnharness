@@ -10,6 +10,7 @@ import { backgroundCaptureStream, createBackgroundCapture, type BackgroundCaptur
 import { createWorkerRequestScope } from "../worker-request-admission.ts";
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
+import { releaseOneShotSessions } from "./pi-run.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./pdf-ops.ts";
 
 /**
@@ -363,6 +364,7 @@ export async function runPdfReaderAgent(
 	} finally {
 		requests.close();
 		capture?.finish(captureError);
+		releaseOneShotSessions(engine, sessionId);
 	}
 
 	// Iteration limit: deliver whatever was honestly consulted (never invention).

@@ -1,6 +1,6 @@
 "use client";
 /**
- * The Agent section (settings-app wave): the THREE MODEL SLOTS, the tool
+ * The Agent section (settings-app wave): the MODEL SLOTS, the tool
  * toggles + the search-engine preference, and the prompt override
  * switches — three GROUPS (owner, 2026-09-20: clear separation — Models /
  * Tools / System prompts).
@@ -22,6 +22,13 @@
  * VISIBLE even when its provider's key lapsed out of the catalog — a
  * trigger showing "Default" over a live override would lie about the
  * record.
+ *
+ * Session helpers (owner, 2026-11-27): the helpers now run on the session's
+ * own model, so only Strong (required) and Vision (optional — the fallback
+ * for a text-only session model, cleared by its menu's "None" row) are
+ * shown. A stored Cheap slot is kept as-is in the record, never shown.
+ * Strong now runs background work too, so every row offers the
+ * subscriptions' "Enable background use".
  *
  * Search engine (search wave, 2026-09-20, owner: no default — an engine
  * is live iff its key is present; with a key the engine AUTO-activates,
@@ -64,7 +71,6 @@ import { PromptSegmentRow, promptSegmentName } from "./prompt-segment-row";
 import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
-	MODEL_SLOTS,
 	SEARCH_ENGINES,
 	resolveSettings,
 	isFileAccessFolder,
@@ -85,12 +91,15 @@ import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
 import { ClaudeBackgroundAccess } from "./claude-connection";
 import { AntigravityBackgroundAccess } from "./antigravity-connection";
 
-/** One slot's display identity — the tier's roster as the row hint rides
- *  with the resolved default (owner: the hint ALWAYS names the default). */
-const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-	strong: { label: "Strong", roster: "The main model for your sessions" },
-	cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
-	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
+/** The slots this section shows (owner, 2026-11-27): the helpers follow
+ *  the session's model, so the unused Cheap slot is not offered. */
+const SHOWN_SLOTS = ["strong", "vision"] as const satisfies readonly ModelSlotName[];
+
+/** One slot's display identity — the tier's roster as the row hint, and
+ *  the model menu's footer. */
+const SLOT_META: Record<(typeof SHOWN_SLOTS)[number], { label: string; roster: string; footer: string }> = {
+	strong: { label: "Strong", roster: "The main model for your sessions and their assistants", footer: "Runs new sessions and their assistants" },
+	vision: { label: "Vision", roster: "Optional: draws figures and reads PDFs when the session's model can't see images", footer: "Used only when the session's model is text-only" },
 };
 
 /** The owner's final toggleable-tool list (confirm with the user before
@@ -615,7 +624,7 @@ export function AgentSection({
 					className="mb-1 self-start text-xs text-muted-foreground hover:text-foreground"
 				>{advancedModels ? "Hide advanced settings" : "Show advanced settings"}</button>
 				{catalogFailed && <p role="alert" className="text-xs text-error">Model catalog could not be loaded. Check the connection and retry. <button type="button" className="underline" onClick={refreshCatalog}>Retry</button></p>}
-				{MODEL_SLOTS.map((slot) => {
+				{SHOWN_SLOTS.map((slot) => {
 					const override = models?.[slot];
 					const modelId = override?.model?.id ?? "";
 					const provider = override?.model?.provider ?? "";
@@ -646,7 +655,7 @@ export function AgentSection({
 								ref={thisMenuOpen ? menuAnchorRef : undefined}
 								className={`relative flex items-center gap-2 ${advancedModels ? "shrink-0" : ""}`}
 							>
-								{slot !== "strong" && <><ChatGPTBackgroundAccess provider={coord?.provider} /><NativeSubscriptionBackgroundAccess provider={coord?.provider} /><ClaudeBackgroundAccess provider={coord?.provider} /><AntigravityBackgroundAccess provider={coord?.provider} /></>}
+								<ChatGPTBackgroundAccess provider={coord?.provider} /><NativeSubscriptionBackgroundAccess provider={coord?.provider} /><ClaudeBackgroundAccess provider={coord?.provider} /><AntigravityBackgroundAccess provider={coord?.provider} />
 								<MenuTrigger
 									value={modelId ? prettyModel(modelId) : ""}
 									hint={modelId ? `${provider}:${modelId}` : undefined}
@@ -704,6 +713,14 @@ export function AgentSection({
 											effectiveId={modelId}
 											effectiveProvider={provider}
 											vision={slot === "vision"}
+											none={slot === "vision" ? {
+												label: "None — use the session's model",
+												selected: !override?.model,
+												onPick: () => {
+													onModelsChange(composeSlotModel(models, slot, "", "", ""));
+													setOpenMenu(null);
+												},
+											} : undefined}
 											onPick={(entry) => {
 												// Auto-populate (chunk 2, owner: "populate everywhere"): the
 												// fresh pick writes a level — the stored one rides as-is
@@ -715,7 +732,7 @@ export function AgentSection({
 											footer={
 												catalog && catalog.length === 0
 													? "No models — add a provider key in Keys"
-													: "Runs every agent of this tier"
+													: SLOT_META[slot].footer
 											}
 										/>
 									</MenuShell>

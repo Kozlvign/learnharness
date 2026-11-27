@@ -131,6 +131,24 @@ test("connected: account, models, background consent, update and sign-out", asyn
 	assert(dialog()!.textContent!.includes("not signed in"));
 });
 
+test("the Strong row offers the background shortcut too: it runs the session's helpers (owner, 2026-11-27)", async () => {
+	fixture({ state: "connected", connected: true, allowBackgroundUse: false });
+	const antigravity = globalThis.fetch;
+	globalThis.fetch = (async (url, init) => {
+		const path = String(url);
+		if (path.startsWith("/api/antigravity")) return antigravity(url, init);
+		if (path === "/api/models") return Response.json({ models: [], defaults: null, rolePins: {}, slots: { strong: null, cheap: null, vision: null }, providers: [] });
+		if (path === "/api/settings/prompts") return Response.json({ prober: [], teacher: [], practice: [] });
+		if (path === "/api/search") return Response.json({ available: false, engine: null, reason: "fixture" });
+		throw new Error(`Unexpected request ${path}`);
+	}) as typeof fetch;
+	const { AgentSection } = await import("../components/settings/agent-section.tsx");
+	await mount(<AgentSection agent={undefined} models={{ strong: { model: { provider: "antigravity", id: "gemini-4-neon" } } }} graph={undefined} compaction={undefined}
+		onSectionChange={() => true} onModelsChange={() => {}} onCompactionChange={() => true} />);
+	assert(hasButton("Enable background use", document.querySelector('[data-testid="slot-row-strong"]')!), "the Strong row's subscription needs background use for helpers");
+	assert(!hasButton("Enable background use", document.querySelector('[data-testid="slot-row-vision"]')!), "an empty Vision row has no provider to enable");
+});
+
 test("the background shortcut belongs to Antigravity slots only", async () => {
 	fixture({ state: "connected", connected: true, allowBackgroundUse: false });
 	await mount(<><AntigravityBackgroundAccess provider="claude" /><AntigravityBackgroundAccess provider="antigravity" /></>);
