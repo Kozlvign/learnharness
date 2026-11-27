@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, SideChatThread, TurnUsage } from "../core/contracts.ts";
+import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, SideChatThread, TitleSource, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -35,11 +35,13 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice"): ChatRecord {
+function createChat(title: string, kind?: "practice", opts: { titleSource?: TitleSource } = {}): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
 		title: title.trim() || "Untitled session",
+		// Fork (docs/session-titles.md): who set the title, when the caller says.
+		...(opts.titleSource ? { titleSource: opts.titleSource } : {}),
 		createdAt: now,
 		updatedAt: now,
 		messages: [],
@@ -89,7 +91,7 @@ function listChats(): ChatSummary[] {
 			.filter((f) => f.endsWith(".json"))
 			.map((f) => getChat(f.slice(0, -5)))
 			.filter((r): r is ChatRecord => r !== null)
-			.map(({ messages, tree, turns, extractions, imageSnapshots: _imageSnapshots, sideChats: _sideChats, ...summary }) => {
+			.map(({ messages, tree, turns, extractions, imageSnapshots: _imageSnapshots, sideChats: _sideChats, titleSource: _titleSource, ...summary }) => {
 				// Per-record isolation (Wave B): a record whose messages fail the
 				// projection (e.g. pre-Wave-B UIMessage-format scratch — the
 				// zero-back-compat wipe makes these "corrupt") must not blank the
@@ -196,13 +198,20 @@ function saveSettings(id: string, settings: ChatSettings): void {
  * saveSettings, a rename is NOT conversation activity: updatedAt stays put
  * so sidebar order never churns. Same fallback as createChat — the empty
  * string becomes "Untitled session" (the API gate rejects it first; this
- * is the honest floor for any other caller). */
-function renameChat(id: string, title: string): ChatRecord {
+ * is the honest floor for any other caller).
+ *
+ * Fork (docs/session-titles.md): `titleSource` defaults to "user" — every
+ * manual rename locks the title against the tutor's rename_session, which
+ * passes "agent". chat-renamed carries the new title so open views (the
+ * header, the sidebar row, the map's labels) update without a refetch. */
+function renameChat(id: string, title: string, titleSource: TitleSource = "user"): ChatRecord {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
 	record.title = title.trim() || "Untitled session";
+	record.titleSource = titleSource;
 	writeChat(record);
 	emit("chats-changed", {});
+	emit("chat-renamed", { chatId: id, title: record.title });
 	return record;
 }
 

@@ -4,6 +4,7 @@ import { probeDoneInputSchema, PROBE_DONE_ACK_TEXT } from "../../core/contracts.
 import { hasUnresolvedQuestion, hasProbeDone, type LhMessage } from "../../core/native-messages.ts";
 import type { ChatStore } from "../../core/ports.ts";
 import { buildProbeHandoffSteer, type SteerMessage } from "../../core/contracts.ts";
+import { needsSessionTitle, SESSION_TITLE_REQUIRED } from "../../core/session-title.ts";
 
 /** What the probe_done tool closes over. */
 export interface ProbeDoneContext {
@@ -58,11 +59,15 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AgentTool<a
 				"strands the lesson depends on, report what the learner can reason from, how they connect the ideas, " +
 				"where their reasoning ran out, and what still needs checking. Report bounds supported by the evidence; " +
 				"don't force a miss once the learner has demonstrated what the lesson needs. The assessment streams to the learner live and " +
-				"becomes the handoff artifact the teacher plans from. Refused while a question is still open, and after " +
-				"the probe is already concluded. After it succeeds, say your closing sentence and end your turn.",
+				"becomes the handoff artifact the teacher plans from. Refused while a question is still open, after " +
+				"the probe is already concluded, and while the session still has its automatic title (rename_session first). " +
+				"After it succeeds, say your closing sentence and end your turn.",
 			// The core-owned schema (contracts/probe.ts) — the SAME schema the UI
 			// parse seam (tool-parts.ts) runs, so boundary-valid ⇔ consumer-parseable.
 			parameters: probeDoneInputSchema,
+			// Fork (docs/session-titles.md): sequential, so a rename earlier in the
+			// same batch has landed before the title gate below reads the record.
+			executionMode: "sequential",
 			execute: serverExecute("probe_done", probeDoneInputSchema, async (input) => {
 				const record = ctx.chatStore.getChat(ctx.chatId);
 				if (!record) return { ok: false, error: `Chat not found: ${ctx.chatId}` };
@@ -78,6 +83,8 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AgentTool<a
 				if (probeConcluded(record.messages)) {
 					return { ok: false, error: "The probe is already concluded — probe_done fires exactly once." };
 				}
+				// Fork (docs/session-titles.md): the session is named before the probe ends.
+				if (needsSessionTitle(record)) return { ok: false, error: SESSION_TITLE_REQUIRED };
 				try {
 					ctx.deliver(buildProbeHandoffSteer(ctx.chatId));
 				} catch (err) {

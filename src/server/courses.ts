@@ -142,7 +142,9 @@ export async function createProposedCourse(originChatId: string, input: CreateCo
 	consumed.add(consentKey);
 	let chat: ReturnType<typeof stores.chatStore.createChat>;
 	try {
-		chat = stores.chatStore.createChat(titleFromPrompt(title));
+		// Fork (docs/session-titles.md): the course's name was proposed to and
+		// accepted by the learner, so the tutor never renames it on its own.
+		chat = stores.chatStore.createChat(titleFromPrompt(title), undefined, { titleSource: "user" });
 	} catch (error) {
 		consumed.delete(consentKey);
 		throw error;

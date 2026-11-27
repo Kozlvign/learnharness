@@ -71,6 +71,10 @@ export interface ServerEvents {
     "anki-changed": {
         chatId: string;
     };
+    "chat-renamed": {
+        chatId: string;
+        title: string;
+    };
 }
 ```
 
@@ -100,6 +104,9 @@ export interface ServerEvents {
 - ["plugin-message".data](#serverevents-plugin-messagedata)
 - ["anki-changed"](#serverevents-anki-changed)
 - ["anki-changed".chatId](#serverevents-anki-changedchatid)
+- ["chat-renamed"](#serverevents-chat-renamed)
+- ["chat-renamed".chatId](#serverevents-chat-renamedchatid)
+- ["chat-renamed".title](#serverevents-chat-renamedtitle)
 
 ### ServerEvents "turn-started"
 
@@ -297,6 +304,32 @@ changed: an open view of the chat re-reads the cards it shows.
 
 ```ts
 chatId: string;
+```
+
+### ServerEvents "chat-renamed"
+
+Fork (docs/session-titles.md): a session's title changed — a manual
+rename or the tutor's rename_session, including mid-turn. Carries
+the new title so open views update in place; chats-changed still
+fires for list consumers.
+
+```ts
+"chat-renamed": {
+    chatId: string;
+    title: string;
+};
+```
+
+### ServerEvents "chat-renamed".chatId
+
+```ts
+chatId: string;
+```
+
+### ServerEvents "chat-renamed".title
+
+```ts
+title: string;
 ```
 
 ## ServerEventType

@@ -25,15 +25,17 @@ import { grepTool } from "./grep.ts";
 import { jobTools, type JobToolContext } from "./jobs.ts";
 import { proberGraphTools, type GraphToolContext } from "./graph.ts";
 import { activeProblemOf } from "../../core/native-messages.ts";
-import type { LhMessage } from "../../core/native-messages.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
+import { needsSessionTitle, SESSION_TITLE_REQUIRED } from "../../core/session-title.ts";
+import { sessionTitleTools, type SessionTitleToolContext } from "./session-title.ts";
 
 
-/** The record-reading context the gates need (the plan-tools idiom). */
+/** The record-reading context the gates need (the plan-tools idiom). Fork
+ *  (docs/session-titles.md): the store also renames, for rename_session. */
 export interface PracticeToolContext {
 	chatId: string;
-	chatStore: { getChat(id: string): { messages: LhMessage[]; kind?: string } | null };
+	chatStore: SessionTitleToolContext["chatStore"];
 	/** The WHOLE-graph node list, read fresh per pose (owner round 9 — the
 	 *  mastery-trace contract): targets validate against every proposition,
 	 *  not just the session's picks, so pickless sessions and future
@@ -59,13 +61,23 @@ export interface PracticeToolContext {
  *  this closure — the intra-turn truth the record cannot hold yet. */
 export interface PracticeGate {
 	problemActive: boolean;
+	/** Fork (docs/session-titles.md): true while the session still has its
+	 *  automatic title, read live — a rename earlier in the same turn lands
+	 *  on the record at once, unlike the turn's messages. Absent = no gate. */
+	titlePending?: () => boolean;
 }
 
 /** Seed the turn's gate from the record (result-aware activeProblemOf —
  *  only a cleanly-posed problem counts). */
 export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 	const record = ctx.chatStore.getChat(ctx.chatId);
-	return { problemActive: record ? activeProblemOf(record.messages) !== null : false };
+	return {
+		problemActive: record ? activeProblemOf(record.messages) !== null : false,
+		titlePending: () => {
+			const current = ctx.chatStore.getChat(ctx.chatId);
+			return current ? needsSessionTitle(current) : false;
+		},
+	};
 }
 
 // ─── problem: the pose ───────────────────────────────────────────────────────
@@ -85,7 +97,8 @@ export function problemTool(
 			"Pose one practice problem. Ends the turn — the learner works in the thinking field; their thinking " +
 			"traces and answer commits arrive back as labeled messages. The modelSolution rides this call's " +
 			"arguments and stays hidden from the learner until you conclude (conclude shows it verbatim — the " +
-			"reveal needs no new field). Only one problem may be active — conclude it before posing the next.",
+			"reveal needs no new field). Only one problem may be active — conclude it before posing the next. " +
+			"Refused while the session still has its automatic title (rename_session first).",
 		parameters: problemInputObject,
 		executionMode: "sequential",
 		prepareArguments: (args: unknown) => {
@@ -122,6 +135,8 @@ export function problemTool(
 /** One synchronous admission for native AND plugin poses; no await can split the gate. */
 export function admitPracticeProblem(gate: PracticeGate, input: { target?: string[] }, graphNodes?: PracticeToolContext["graphNodes"], toolName = "problem") {
 	if (gate.problemActive) return invalidInputResult(toolName, ["a problem is already active — call conclude on it before posing the next one"]);
+	// Fork (docs/session-titles.md): the session is named before its first problem.
+	if (gate.titlePending?.()) return invalidInputResult(toolName, [SESSION_TITLE_REQUIRED]);
 	if (graphNodes && input.target?.length) {
 		const list = graphNodes();
 		const unknown = input.target.filter(target => resolveTargetId(target, list) === null);
@@ -212,6 +227,8 @@ export function practiceTools(ctx: PracticeToolContext, gate: PracticeGate = cre
 		ls: lsTool,
 		find: findTool,
 		grep: grepTool,
+		// Fork (docs/session-titles.md): always on, like the session pair.
+		...sessionTitleTools(ctx),
 		...(jobs?.research ? { research: jobs.research } : {}),
 		...(jobs ? { pdf: jobs.pdf! } : {}),
 		...(ctx.graph ? proberGraphTools(ctx.graph) : {}),

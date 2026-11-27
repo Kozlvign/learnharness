@@ -51,6 +51,9 @@ export interface PluginQuestionAvailability { questionId: string; status: "avail
 export interface SessionRecordSnapshot {
 	pluginProblemAvailability?: PluginProblemAvailability;
 	messages: LhMessage[];
+	/** Fork (docs/session-titles.md): the saved title, which the tutor may
+	 *  change mid-turn with rename_session. */
+	title?: string;
 	turnError?: string;
 	pluginQuestionAvailability?: PluginQuestionAvailability;
 	turnInFlight?: boolean;

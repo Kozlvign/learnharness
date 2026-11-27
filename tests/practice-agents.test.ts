@@ -18,7 +18,7 @@ import {
 	PRACTICE_PROBLEM_TOOL,
 	type LhMessage,
 } from "../src/core/native-messages.ts";
-import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
+import { CONCLUDE_ACK_TEXT, type ChatRecord } from "../src/core/contracts/chat.ts";
 import { concludeInputObject, concludeTool, createPracticeGate, problemTool, practiceTools } from "../src/agent/tools/practice.ts";
 import { composeInstructions, createPracticeAgent } from "../src/agent/teacher-agent.ts";
 import { allSegmentPaths } from "../src/agent/prompt-segments.ts";
@@ -65,9 +65,13 @@ function activeProblemRecord(): LhMessage[] {
 }
 
 function recordStore(messages: LhMessage[]) {
+	// A learner-named session: the session-title gate stays open (its own
+	// tests live in tests/session-title.test.ts).
+	const record = (): ChatRecord => ({ id: "c1", title: "Practice fixture", titleSource: "user", createdAt: "", updatedAt: "", messages, kind: "practice" });
 	return {
 		store: {
-			getChat: (_id: string) => ({ messages, kind: "practice" }),
+			getChat: (_id: string) => record(),
+			renameChat: (_id: string, title: string) => ({ ...record(), title }),
 		},
 	};
 }
@@ -200,7 +204,7 @@ describe("the practice agent", () => {
 		const tools = practiceTools(ctxOf([]));
 		assert.deepEqual(
 			Object.keys(tools).sort(),
-			["conclude", "find", "grep", "ls", "problem", "read"],
+			["conclude", "find", "grep", "ls", "problem", "read", "rename_session"],
 		);
 	});
 
@@ -213,7 +217,7 @@ describe("the practice agent", () => {
 		// not apply the teacher/prober user tool-toggle filter.
 		assert.deepEqual(
 			Object.keys(tools).sort(),
-			["conclude", "find", "grep", "list_propositions", "list_sessions", "ls", "pdf", "problem", "read", "research"],
+			["conclude", "find", "grep", "list_propositions", "list_sessions", "ls", "pdf", "problem", "read", "rename_session", "research"],
 		);
 		const withSearch = practiceTools({ ...ctxOf([]), jobs: { ...jobs, searchAvailable: () => true }, graph });
 		assert.ok(withSearch.research, "a live engine also keeps research");

@@ -28,6 +28,7 @@ import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { createShowImageTool } from "./tools/show-image.ts";
 import { healToolRecord } from "./tools/heal.ts";
+import { sessionTitleTools } from "./tools/session-title.ts";
 import type { GraphStore } from "../core/ports.ts";
 
 export { jobTools };
@@ -335,6 +336,9 @@ export function createProberTools(
 	// probe_done is re-added AFTER the filter, always-on by construction — it
 	// is how the phase ENDS; a prober that can never conclude is a lockout.
 	const done = probeDoneTool(ctx);
+	// Fork (docs/session-titles.md): rename_session is always on too —
+	// probe_done refuses until the session is named.
+	const title = sessionTitleTools(ctx);
 	// The job tools build over the SAME context/gates as the teacher's
 	// (one builder, one gating semantic); the prober carries a SUBSET:
 	const jobs = jobTools({
@@ -390,6 +394,7 @@ export function createProberTools(
 				withoutMechanics(enabled),
 			),
 			...done,
+			...title,
 		});
 }
 
@@ -494,8 +499,8 @@ export function createTeacherTools(
 			: mechanics === "choice" ? { quiz: teachQuizToolFor(ctx) }
 				: { quiz: teachQuizToolFor(ctx), explain: teachExplainToolFor(ctx) };
 	// healToolRecord — same standard as the prober's registry (above).
-	return healToolRecord(
-		filterEnabledTools(
+	return healToolRecord({
+		...filterEnabledTools(
 			{
 			...quizzing,
 			ask_user_question: askUserQuestionTool,
@@ -515,5 +520,8 @@ export function createTeacherTools(
 		},
 		withoutMechanics(enabled),
 		),
-	);
+		// Fork (docs/session-titles.md): always on, outside the toggles —
+		// plan_init refuses until the session is named.
+		...sessionTitleTools(ctx),
+	});
 }

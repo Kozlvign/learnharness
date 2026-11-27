@@ -5,6 +5,7 @@ import type { PlanToolResult, PlanTree } from "../../core/contracts.ts";
 import type { ChatStore } from "../../core/ports.ts";
 import { createTree, PlanTreeError } from "../../core/plan-tree.ts";
 import { parseMermaidPlan } from "./mermaid-plan.ts";
+import { needsSessionTitle, SESSION_TITLE_REQUIRED } from "../../core/session-title.ts";
 
 /** The binding-id reminder riding plan_init's slim content (owner,
  *  2026-10-09): plan_init is the exact moment the node ids become
@@ -70,12 +71,18 @@ export function planTools(ctx: PlanToolContext): Record<string, AgentTool<any>> 
 				"A mermaid graph block (any direction): one node per line (`slug[Short Title]` — slugs are permanent lowercase ids: a-z, 0-9, hyphens/underscores), " +
 				"`-->` edges meaning 'from must be understood before to' (chains fine). Organize the living course syllabus by units; " +
 				"keep its main path compact and rewrite it as accepted detours, gaps or demonstrated mastery change the course. " +
-				"Every check you fire names the node it assesses via `nodeId`; where the lesson stands derives from those tags.",
+				"Every check you fire names the node it assesses via `nodeId`; where the lesson stands derives from those tags. " +
+				"Refused while the session still has its automatic title (rename_session first).",
 			parameters: planInitInput,
+			// Fork (docs/session-titles.md): sequential, so a rename earlier in the
+			// same batch has landed before the title gate below reads the record.
+			executionMode: "sequential",
 			execute: serverExecute("plan_init", planInitInput, async ({ mermaid }) => {
 				const { chatId, chatStore } = ctx;
 				const record = chatStore.getChat(chatId);
 				if (!record) return { ok: false, error: `Chat not found: ${chatId}` };
+				// Fork (docs/session-titles.md): the session is named before its plan.
+				if (needsSessionTitle(record)) return { ok: false, error: SESSION_TITLE_REQUIRED };
 
 				const parsed = parseMermaidPlan(mermaid);
 				if (!parsed.ok || !parsed.plan) {
