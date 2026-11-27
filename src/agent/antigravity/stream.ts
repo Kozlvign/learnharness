@@ -189,28 +189,37 @@ async function continueLive(session: LiveSession, delta: ConversationMessage[], 
 
 	// The prompt and the tools are fixed when agy starts: resume the same agy
 	// session in a new process with the new ones. Open calls become paused results.
-	if (config.systemKey !== session.config.systemKey || config.toolsKey !== session.config.toolsKey) {
-		const known = session.known;
-		session.busy = true; // nobody else may pick it while it restarts
-		await dropSession(session);
-		const next = await openSession({ ...config, resume: session.sessionId });
-		next.known = known;
-		next.busy = true;
-		const content: AcpContent[] = results.length ? pausedResultsBlocks(results, users) : users.flatMap(userBlocks);
-		return { session: next, deliver: () => next.send(content) };
-	}
+	if (config.systemKey !== session.config.systemKey || config.toolsKey !== session.config.toolsKey) return resumeInNewProcess(session, config, results, users);
+	// agy saves images in MCP tool results to files and shows the model only
+	// their paths, which it cannot open. Results carrying images end the open
+	// turn instead, and arrive in a new prompt, where images reach the model.
+	const inline = results.length > 0 && [...results.flatMap(toolResultContent), ...attachedUserContent(users)].some((block) => block.type === "image");
 	session.busy = true;
+	if (inline && !await session.cancelTurn()) return resumeInNewProcess(session, config, results, users);
 	try { await session.apply(config.model, config.level); } catch { session.busy = false; return undefined; }
 	return {
 		session,
 		deliver: () => {
 			if (!results.length) { session.send(users.flatMap(userBlocks)); return; }
+			if (inline) { session.send(pausedResultsBlocks(results, users)); return; }
 			results.forEach((result, index) => {
 				const extra = index === results.length - 1 ? attachedUserContent(users) : [];
 				session.answer(result.toolCallId, [...toolResultContent(result), ...extra], result.isError);
 			});
 		},
 	};
+}
+
+/** Resumes the same agy session in a new process. Open calls become paused results. */
+async function resumeInNewProcess(session: LiveSession, config: SessionConfig, results: ToolResultMessage[], users: UserMessage[]): Promise<Plan> {
+	const known = session.known;
+	session.busy = true; // nobody else may pick it while it restarts
+	await dropSession(session);
+	const next = await openSession({ ...config, resume: session.sessionId });
+	next.known = known;
+	next.busy = true;
+	const content: AcpContent[] = results.length ? pausedResultsBlocks(results, users) : users.flatMap(userBlocks);
+	return { session: next, deliver: () => next.send(content) };
 }
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {

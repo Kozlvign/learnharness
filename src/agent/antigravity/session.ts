@@ -29,6 +29,8 @@ export class AsyncQueue<T> {
 	}
 	/** Puts an item back at the front. */
 	unshift(item: T): void { if (!this.done) this.items.unshift(item); }
+	/** Drops the items nobody has taken yet. */
+	clear(): void { this.items.length = 0; }
 	close(): void {
 		this.done = true;
 		for (const waiter of this.waiters.splice(0)) waiter({ value: undefined, done: true });
@@ -131,6 +133,8 @@ export class LiveSession {
 	private readonly held = new Map<string, (result: CallToolResult) => void>();
 	private readonly announced: Array<{ id: string; name: string; args: string }> = [];
 	private cancelling = false;
+	/** Settles when the running `session/prompt` has ended and its last event is queued. */
+	private promptDone: Promise<void> = Promise.resolve();
 	private modelOption = "model";
 	private models: string[] = [];
 	private currentModel?: string;
@@ -257,7 +261,8 @@ export class LiveSession {
 	}
 
 	private onCall(request: ToolCallRequest): Promise<CallToolResult> {
-		if (this.closed) return Promise.resolve(CANCELLED);
+		// A call that reaches the endpoint while the turn is being cancelled belongs to that turn.
+		if (this.closed || this.cancelling) return Promise.resolve(CANCELLED);
 		if (request.conversationId && this.sessionId && request.conversationId !== this.sessionId) {
 			return Promise.resolve({ content: [{ type: "text", text: "This tool call belongs to another conversation." }], isError: true });
 		}
@@ -295,7 +300,7 @@ export class LiveSession {
 		this.turnReported = 0;
 		this.cancelling = false;
 		const prompt = content.length ? content : [{ type: "text", text: "Continue." }];
-		void this.process!.request<{ stopReason?: string; usage?: PromptUsage } | null>("session/prompt", { sessionId: this.sessionId, prompt }).then(
+		this.promptDone = this.process!.request<{ stopReason?: string; usage?: PromptUsage } | null>("session/prompt", { sessionId: this.sessionId, prompt }).then(
 			(result) => { this.promptOpen = false; this.events.push({ type: "end", stopReason: String(result?.stopReason ?? "end_turn"), ...(result?.usage ? { usage: result.usage } : {}) }); },
 			(error: unknown) => { this.promptOpen = false; this.events.push({ type: "error", error: error instanceof Error ? error : new Error(String(error)) }); },
 		);
@@ -306,6 +311,33 @@ export class LiveSession {
 		if (!this.promptOpen || !this.process) return;
 		this.cancelling = true;
 		this.process.notify("session/cancel", { sessionId: this.sessionId });
+	}
+
+	/** Cancels agy's running turn in place and waits for it to end, so the same
+	 * process and agy session take the next prompt. Open calls end as cancelled
+	 * and what the cancelled turn left behind is dropped. False when the turn
+	 * did not end within `timeoutMs` or the process stopped. */
+	async cancelTurn(timeoutMs = 3000): Promise<boolean> {
+		if (this.closed || !this.process) return false;
+		if (this.promptOpen) {
+			this.cancel();
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const ended = await Promise.race([
+				this.promptDone.then(() => true),
+				this.process.exited.then(() => false),
+				new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+			]);
+			clearTimeout(timer);
+			if (!ended || this.closed) return false;
+		}
+		for (const resolve of this.held.values()) resolve(CANCELLED);
+		this.held.clear();
+		this.awaiting.clear();
+		this.announced.length = 0;
+		this.events.clear();
+		this.cancelling = false;
+		this.desynced = false;
+		return true;
 	}
 
 	/** Stops cleanly: a running turn is cancelled first, so agy records the
