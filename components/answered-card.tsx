@@ -147,6 +147,9 @@ export function AnsweredCard({ answer: savedAnswer, input, toolCallId, footer }:
 	const askInput = answer.kind === "ask" ? parseAskInput(input) : undefined;
 	const parsedDetails = askInput?.details ?? (answer.kind === "quiz" ? parseQuizInput(input)?.details : undefined);
 	const descByIndex = new Map((askInput?.options ?? []).map((o, i) => [i + 1, o.description]));
+	// Each option's own "why" (owner, 2026-11-27), in display order. Older
+	// records carry none: the Why panel then renders exactly as before.
+	const optionWhys = isQuiz ? (answer.options ?? []).filter((o) => o.explanation?.trim()) : [];
 
 	return (
 		<>
@@ -308,7 +311,7 @@ export function AnsweredCard({ answer: savedAnswer, input, toolCallId, footer }:
 			{/* px-3→removed: card p-4 + box px-3 double-inset sat the "Why" label deeper
 			    than the option box edges (owner, round 3). Sides flush with everything
 			    else; py-2 stays for vertical air. */}
-			{isQuiz && answer.explanation && (
+			{isQuiz && (answer.explanation || optionWhys.length > 0) && (
 				/* The TUCKED explanation — ALL questions (owner, 2026-10-07): the
 				   verdict shows, the explanation sits collapsed behind the Why
 				   toggle — viewable, never center stage. Identical to the
@@ -323,10 +326,58 @@ export function AnsweredCard({ answer: savedAnswer, input, toolCallId, footer }:
 					</button>
 					{whyOpen && (
 						<div className="mt-1.5 rounded-lg bg-muted py-2 text-sm text-foreground/50">
-							<span className="font-medium text-muted-foreground">Why: </span>
-							{/* Keep the first paragraph beside the label, not every paragraph:
-							   later paragraphs must retain their recovered document structure. */}
-							<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{answer.explanation}</ToolContentResponse>
+							{answer.explanation && (
+								<>
+									<span className="font-medium text-muted-foreground">Why: </span>
+									{/* Keep the first paragraph beside the label, not every paragraph:
+									   later paragraphs must retain their recovered document structure. */}
+									<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{answer.explanation}</ToolContentResponse>
+								</>
+							)}
+							{optionWhys.length > 0 && (
+								/* Each option's own why (owner, 2026-11-27), in the order the
+								   options were shown, marked exactly like the option rows
+								   above: ✓ on the correct ones, ✗ on a wrong one he picked.
+								   Lettered questions name the option by its letter; unlettered
+								   ones (multi-select) repeat the label. The wrong pick he
+								   made reads a step stronger. */
+								<ul
+									data-testid="option-explanations"
+									className={cn("flex flex-col gap-1.5", answer.explanation && "mt-2 border-t border-border/50 pt-2")}
+								>
+									{optionWhys.map((opt) => {
+										const sel = selectedIdx.has(opt.index);
+										const key = correctIdx.has(opt.index);
+										const letter = optionLetters.get(opt.index);
+										return (
+											<li
+												key={opt.index}
+												data-option-explanation={opt.index}
+												className={cn("flex items-start gap-2", sel && !key && "text-foreground/75")}
+											>
+												{letter && (
+													<span data-explanation-letter={letter} className="w-3 shrink-0 text-center text-xs font-medium leading-5 text-muted-foreground/70">
+														{letter}
+													</span>
+												)}
+												<span
+													aria-hidden
+													data-mark={key ? "check" : sel ? "x" : undefined}
+													className={cn("flex h-5 w-3.5 shrink-0 items-center", key && "text-success", sel && !key && "text-error")}
+												>
+													{(key || sel) && <GlyphMark kind={key ? "check" : "x"} className="size-3.5" />}
+												</span>
+												<div className="min-w-0 flex-1">
+													{!letter && (
+														<ToolContentResponse className="font-medium text-muted-foreground">{opt.label}</ToolContentResponse>
+													)}
+													<ToolContentResponse>{opt.explanation!}</ToolContentResponse>
+												</div>
+											</li>
+										);
+									})}
+								</ul>
+							)}
 						</div>
 					)}
 				</div>

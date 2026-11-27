@@ -47,10 +47,10 @@ function whiteheadQuiz(type: unknown, correctAnswer: unknown) {
 	return {
 		question: "What was Parmenides' claim?",
 		options: [
-			{ label: "Being is changeless and complete", value: "parmenides" },
-			{ label: "Becoming is fundamental", value: "heraclitus" },
-			{ label: "Split world", value: "split" },
-			{ label: "Both unreal", value: "both-illusion" },
+			{ label: "Being is changeless and complete", value: "parmenides", explanation: "What is cannot come to be." },
+			{ label: "Becoming is fundamental", value: "heraclitus", explanation: "That is Heraclitus, not Parmenides." },
+			{ label: "Split world", value: "split", explanation: "The split is Plato's later move." },
+			{ label: "Both unreal", value: "both-illusion", explanation: "Parmenides keeps Being real." },
 		],
 		explanation: "What truly *is* cannot come to be or pass away — the flux is appearance.",
 		correctAnswer,
@@ -158,7 +158,10 @@ describe("the calculus retry loop — an exact answer was incorrectly stripped",
 	it("the real probe tool accepts a label with its sentence-final period", async () => {
 		const input = {
 			question: "Which claim?",
-			options: [{ label: "The claim holds." }, { label: "The claim need not hold." }],
+			options: [
+				{ label: "The claim holds.", explanation: "The premise is weaker than the claim." },
+				{ label: "The claim need not hold.", explanation: "The premise does not imply it." },
+			],
 			explanation: "The premise does not imply the claim.",
 			correctAnswer: "The claim need not hold.",
 		};

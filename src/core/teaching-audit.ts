@@ -689,9 +689,10 @@ export function renderTranscript(record: AuditRecord): string {
 					body.push(`**→ ${block.name}**${tags ? ` \`${tags}\`` : ""}`, "", String(args.question ?? ""), "");
 					if (str(args.details)) body.push(String(args.details), "");
 					const rawOptions = Array.isArray(args.options) ? args.options : [];
-					const options = rawOptions.map((o) => (o && typeof o === "object" ? (o as { label?: unknown; value?: unknown }) : { label: String(o ?? "") }));
+					const options = rawOptions.map((o): { label?: unknown; value?: unknown; explanation?: unknown } => (o && typeof o === "object" ? o : { label: String(o ?? "") }));
+					const graded = block.name === "quiz" || block.name === "probe";
 					let correct: number[] = [];
-					if ((block.name === "quiz" || block.name === "probe") && options.length > 0) {
+					if (graded && options.length > 0) {
 						try {
 							const normalized = normalizeOptions(options.map((o) => ({ label: String(o.label ?? ""), value: typeof o.value === "string" ? o.value : undefined })));
 							const commitment = typeof args.correctAnswer === "string" || (Array.isArray(args.correctAnswer) && args.correctAnswer.every((value) => typeof value === "string")) ? args.correctAnswer : undefined;
@@ -701,7 +702,12 @@ export function renderTranscript(record: AuditRecord): string {
 							correct = [];
 						}
 					}
-					for (const [index, o] of options.entries()) body.push(`- ${correct.includes(index + 1) ? "**(certa)** " : ""}${String(o.label ?? "")}`);
+					for (const [index, o] of options.entries()) {
+						body.push(`- ${correct.includes(index + 1) ? "**(certa)** " : ""}${String(o.label ?? "")}`);
+						// Each quiz option's own explanation (owner, 2026-11-27); older calls carry none.
+						const why = graded ? str(o.explanation) : undefined;
+						if (why) body.push(`  - Explicação da opção: ${why.replace(/\n/g, "\n    ")}`);
+					}
 					if (block.name === "explain" || block.name === "recall") body.push(`- Resposta comprometida: ${String(args.correctAnswer ?? "")}`);
 					if (str(args.explanation)) body.push("", `Explicação comprometida: ${String(args.explanation)}`);
 					const r = results.get(block.id);

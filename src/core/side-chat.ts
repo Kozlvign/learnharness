@@ -362,8 +362,9 @@ function attachedImagesNote(attachments: AnswerAttachments | undefined): string 
 	return parts.length ? `*The learner attached images, not shown to you: ${parts.join(", ")}.*` : null;
 }
 
-/** An ANSWERED question in full: options with the key, the learner's
- *  answer, the verdict and the explanation/committed answer. */
+/** An ANSWERED question in full: options with the key (and each quiz
+ *  option's own explanation), the learner's answer, the verdict and the
+ *  explanation/committed answer. */
 function answeredQuestionMarkdown(result: ToolResultMessage, input: Record<string, unknown> | undefined): string | null {
 	const answer = result.details as QuestionAnswerData | undefined;
 	if (!answer || typeof answer !== "object" || typeof answer.questionText !== "string") return null;
@@ -388,7 +389,11 @@ function answeredQuestionMarkdown(result: ToolResultMessage, input: Record<strin
 				.map((o) => {
 					const marks = [isQuiz && correct.has(o.index) ? "correct" : "", chosen.has(o.index) ? "chosen by the learner" : ""].filter(Boolean);
 					const letter = letters.get(o.index);
-					return `- ${letter ? `${letter}. ` : ""}${o.label}${marks.length > 0 ? ` *(${marks.join(", ")})*` : ""}`;
+					const line = `- ${letter ? `${letter}. ` : ""}${o.label}${marks.length > 0 ? ` *(${marks.join(", ")})*` : ""}`;
+					// The option's own why, as the learner saw it in the Why panel
+					// (answered quizzes only — the open view never carries it).
+					const why = isQuiz && typeof o.explanation === "string" ? o.explanation.trim() : "";
+					return why ? `${line}\n  *Why shown to the learner:* ${why.replace(/\n/g, "\n  ")}` : line;
 				})
 				.join("\n"),
 		);

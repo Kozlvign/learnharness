@@ -22,6 +22,7 @@ import {
 	DEFAULT_CONFIDENCE_INDEX,
 	emptyDockSelection,
 	displayedOptionLetter,
+	extractOptionExplanations,
 	questionDisplayOptions,
 	resolveCorrect,
 	toolQuestionKind,
@@ -446,6 +447,11 @@ function QuestionDockForm({
 			if (resolved.error) console.error("[quiz] correctAnswer did not resolve:", resolved.error);
 			q.correctIndices = resolved.indices;
 			q.explanation = quizInput.explanation;
+			// Each option's own "why", keyed by value: private like the
+			// explanation (toClientQuestion omits it), revealed only by the
+			// answered card after submit.
+			const optionExplanations = extractOptionExplanations(quizInput.options);
+			if (optionExplanations) q.optionExplanations = optionExplanations;
 		}
 		if (explainInput) {
 			// The commitment rides the question data (never sent to the

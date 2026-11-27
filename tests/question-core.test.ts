@@ -34,6 +34,9 @@ import {
 	shuffleOptions,
 	type QuestionData,
 	toClientQuestion,
+	extractOptionExplanations,
+	optionExplanationFor,
+	quizOptionExplanationProblems,
 } from "../src/core/question-core.ts";
 import { toolQuestionKind } from "../src/core/pending.ts";
 import { parseQuizInput } from "../src/core/tool-parts.ts";
@@ -78,7 +81,11 @@ describe("the schema's argument order (reasoning before the pick)", () => {
 describe("quizInputSchema / quizInputProblems (the authoring contract)", () => {
 	const valid = {
 		question: "Which planet is closest to the Sun?",
-		options: [{ label: "Venus" }, { label: "Mercury" }, { label: "Mars" }],
+		options: [
+			{ label: "Venus", explanation: "Second from the Sun." },
+			{ label: "Mercury", explanation: "The innermost planet." },
+			{ label: "Mars", explanation: "Fourth from the Sun." },
+		],
 		correctAnswer: "Mercury",
 		explanation: "Mercury is the innermost planet.",
 		type: "check",
@@ -94,9 +101,9 @@ describe("quizInputSchema / quizInputProblems (the authoring contract)", () => {
 		const multi = {
 			...valid,
 			options: [
-				{ label: "A", value: "a" },
-				{ label: "B", value: "b" },
-				{ label: "C", value: "c" },
+				{ label: "A", value: "a", explanation: "Holds." },
+				{ label: "B", value: "b", explanation: "Holds too." },
+				{ label: "C", value: "c", explanation: "Fails." },
 			],
 			correctAnswer: ["a", "b"],
 			multiSelect: true,
@@ -137,8 +144,8 @@ describe("quizInputSchema / quizInputProblems (the authoring contract)", () => {
 		const bad = {
 			...valid,
 			options: [
-				{ label: "Mercury", value: "same" },
-				{ label: "Venus", value: "same" },
+				{ label: "Mercury", value: "same", explanation: "Innermost." },
+				{ label: "Venus", value: "same", explanation: "Second." },
 			],
 		};
 		assert.equal(boundaryOk(quizInputSchema, bad, quizInputProblems(bad)), false);
@@ -146,7 +153,7 @@ describe("quizInputSchema / quizInputProblems (the authoring contract)", () => {
 	});
 
 	it("rejects an empty option label", () => {
-		const bad = { ...valid, options: [{ label: "  " }, { label: "Mercury" }, { label: "Mars" }] };
+		const bad = { ...valid, options: [{ label: "  ", explanation: "Blank." }, { label: "Mercury", explanation: "Innermost." }, { label: "Mars", explanation: "Fourth." }] };
 		assert.equal(boundaryOk(quizInputSchema, bad, quizInputProblems(bad)), false);
 		assert.match(quizInputProblems(bad).join(" "), /label is empty/);
 	});
@@ -316,7 +323,10 @@ describe("exact answer membership precedes debris cleanup", () => {
 		const correct = "$f$ need not be differentiable at $a$.";
 		const input = {
 			question: "All partial derivatives of $f$ exist at $a$. Must $f$ be differentiable there?",
-			options: [{ label: "$f$ is differentiable at $a$." }, { label: correct }],
+			options: [
+				{ label: "$f$ is differentiable at $a$.", explanation: "Partials alone do not give a linear approximation." },
+				{ label: correct, explanation: "Existing partials are necessary, not sufficient." },
+			],
 			explanation: "Existing partial derivatives need not give a linear approximation.",
 			correctAnswer: correct,
 		};
@@ -601,6 +611,93 @@ describe("toClientQuestion", () => {
 		assert.equal(cq.kind, "quiz");
 		assert.equal(cq.options.length, 2);
 	});
+
+	it("NEVER exposes the per-option explanations", () => {
+		const cq = toClientQuestion(quizData({ optionExplanations: { mercury: "SECRET-WHY-MERCURY", venus: "SECRET-WHY-VENUS" } }));
+		const raw = JSON.stringify(cq);
+		assert.ok(!raw.includes("optionExplanations"));
+		assert.ok(!raw.includes("SECRET-WHY"));
+		assert.ok(cq.options.every((o) => !("explanation" in o)));
+	});
+});
+
+// ─── per-option explanations (owner, 2026-11-27) ────────────────────────────
+
+describe("per-option explanations", () => {
+	it("the boundary problems require a non-blank explanation on every option", () => {
+		assert.deepEqual(quizOptionExplanationProblems([{ explanation: "Holds." }, { explanation: "Fails." }]), []);
+		const problems = quizOptionExplanationProblems([{ explanation: "Holds." }, { explanation: "   " }, {}]);
+		assert.equal(problems.length, 2);
+		assert.match(problems[0]!, /options\[1\]\.explanation/);
+		assert.match(problems[1]!, /options\[2\]\.explanation/);
+	});
+
+	it("the authoring schemas require it; quizInputProblems (shared with the display parse) does not", () => {
+		const withWhys = {
+			question: "Q?",
+			options: [{ label: "A", value: "a", explanation: "Holds." }, { label: "B", value: "b", explanation: "Fails." }],
+			explanation: "A holds.",
+			correctAnswer: "a",
+		};
+		const withoutWhys = { ...withWhys, options: [{ label: "A", value: "a" }, { label: "B", value: "b" }] };
+		assert.equal(Value.Check(probeQuizInputSchema, withWhys), true);
+		assert.equal(Value.Check(probeQuizInputSchema, withoutWhys), false);
+		assert.equal(Value.Check(quizInputSchema, { ...withoutWhys, type: "check", nodeId: "n" }), false);
+		assert.match([...Value.Errors(probeQuizInputSchema, withoutWhys)].map((e) => e.message).join("\n"), /explanation/);
+		assert.deepEqual(quizInputProblems(withoutWhys), [], "old records stay gradeable and displayable");
+	});
+
+	it("parseQuizInput keeps each option's explanation and still parses records that carry none", () => {
+		const fresh = parseQuizInput({
+			question: "Q?",
+			options: [{ label: "A", value: "a", explanation: "Holds." }, { label: "B", value: "b", explanation: "Fails." }],
+			explanation: "A holds.",
+			correctAnswer: "a",
+		});
+		assert.deepEqual(fresh?.options.map((o) => o.explanation), ["Holds.", "Fails."]);
+		const legacy = parseQuizInput({ question: "Q?", options: [{ label: "A" }, { label: "B" }], explanation: "A holds.", correctAnswer: "A" });
+		assert.ok(legacy, "a record from before per-option explanations must keep rendering");
+		assert.deepEqual(legacy.options.map((o) => o.explanation), [undefined, undefined]);
+	});
+
+	it("extractOptionExplanations keys by resolved value, heals string-encoded options, and is absent when none exist", () => {
+		const options = [
+			{ label: " Mercury ", value: " mercury ", explanation: " Innermost. " },
+			{ label: "Venus", explanation: "Second." },
+			{ label: "Mars", explanation: "   " },
+			{ label: "Earth" },
+		];
+		const expected = { mercury: "Innermost.", Venus: "Second." };
+		assert.deepEqual(extractOptionExplanations(options), expected);
+		assert.deepEqual(extractOptionExplanations(JSON.stringify(options)), expected);
+		assert.equal(extractOptionExplanations([{ label: "A" }, { label: "B" }]), undefined);
+		assert.equal(extractOptionExplanations(undefined), undefined);
+		assert.equal(extractOptionExplanations("not json"), undefined);
+		const proto = extractOptionExplanations([{ label: "__proto__", explanation: "Data, not a prototype." }]);
+		assert.equal(optionExplanationFor(proto, "__proto__"), "Data, not a prototype.");
+		assert.equal(optionExplanationFor(proto, "toString"), undefined);
+	});
+
+	it("buildAnswer snapshots each quiz option's explanation in display order; older questions and asks carry none", () => {
+		const qd = quizData({
+			options: normalizeOptions([{ label: "Venus", value: "venus" }, { label: "Mercury", value: "mercury" }]),
+			correctIndices: [2],
+			optionExplanations: { mercury: "Innermost.", venus: "Second." },
+		});
+		const ad = buildAnswer(qd, { values: ["venus"] });
+		assert.deepEqual(ad.options, [
+			{ index: 1, label: "Venus", explanation: "Second." },
+			{ index: 2, label: "Mercury", explanation: "Innermost." },
+		]);
+		assert.deepEqual(buildAnswer(quizData(), { values: ["mercury"] }).options, [
+			{ index: 1, label: "Mercury" },
+			{ index: 2, label: "Venus" },
+		]);
+		const ask: QuestionData = { ...quizData({ kind: "ask", optionExplanations: { mercury: "Never shown." } }), correctIndices: undefined };
+		assert.ok(buildAnswer(ask, { values: ["mercury"] }).options!.every((o) => !("explanation" in o)));
+		const compact = JSON.stringify(compactAnswerForModel(ad));
+		assert.ok(!compact.includes("Innermost") && !compact.includes("Second."), "the model already authored them — never echoed back");
+	});
 });
 
 
@@ -727,7 +824,11 @@ describe("buildAnswer / formatAnswerMessage: explain", () => {
 describe("the quiz role field (predict | check)", () => {
 	const valid = {
 		question: "Which planet is closest to the Sun?",
-		options: [{ label: "Venus" }, { label: "Mercury" }, { label: "Mars" }],
+		options: [
+			{ label: "Venus", explanation: "Second from the Sun." },
+			{ label: "Mercury", explanation: "The innermost planet." },
+			{ label: "Mars", explanation: "Fourth from the Sun." },
+		],
 		correctAnswer: "Mercury",
 		explanation: "Mercury is the innermost planet.",
 		type: "check",

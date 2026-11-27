@@ -29,7 +29,7 @@ import {
 } from "../src/agent/tools.ts";
 import { TOGGLEABLE_TOOLS } from "../src/core/pending.ts";
 import { jobStore } from "../src/store/jobs.ts";
-import { probeQuizInputSchema, quizInputObject, quizInputProblems } from "../src/core/question-core.ts";
+import { probeQuizInputSchema, quizInputObject, quizInputProblems, quizOptionExplanationProblems } from "../src/core/question-core.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { PATHS } from "../config.ts";
 
@@ -56,8 +56,8 @@ function newChat(title: string): string {
 const validQuiz = {
 	question: "What is 2 + 2?",
 	options: [
-		{ label: "3", value: "3" },
-		{ label: "4", value: "4" },
+		{ label: "3", value: "3", explanation: "One short." },
+		{ label: "4", value: "4", explanation: "Two pairs make four." },
 	],
 	correctAnswer: "4",
 	explanation: "Arithmetic.",
@@ -212,6 +212,48 @@ describe("the prober's quiz: no nodeId field at all", () => {
 		assert.equal(Value.Check(probe.parameters, { ...validQuiz, nodeId: "anything" }), true, "no session check to fail");
 	});
 });
+// ─── per-option explanations at the boundary (owner, 2026-11-27) ─────────
+
+describe("every option carries its own explanation (probe and quiz boundaries)", () => {
+	const withoutWhy = (i: number) => validQuiz.options.map((o, j) => {
+		if (j !== i) return o;
+		const { explanation: _dropped, ...bare } = o;
+		return bare;
+	});
+	const blankWhy = (i: number) => validQuiz.options.map((o, j) => (j === i ? { ...o, explanation: "  \n " } : o));
+
+	it("probe: a missing explanation fails the schema; a blank one is returned to the model by execute", async () => {
+		const missing = await boundaryParse(probeQuizTool, { ...validQuiz, options: withoutWhy(1) });
+		assert.equal(missing.success, false);
+		assert.match([...Value.Errors(probeQuizInputSchema, { ...validQuiz, options: withoutWhy(1) })].map((e) => e.message).join("\n"), /explanation/);
+		const blank = await boundaryParse(probeQuizTool, { ...validQuiz, options: blankWhy(0) });
+		assert.equal(blank.success, false);
+		assert.deepEqual(problemLines(blank.error), [
+			"options[0].explanation is empty — every option needs its own explanation (why it is correct, or why it is wrong).",
+		]);
+		assert.equal((await boundaryParse(probeQuizTool, validQuiz)).success, true);
+	});
+
+	it("quiz: the same contract, chained with the grading and plan checks", async () => {
+		const chatId = newChat("Option explanations: teach boundary");
+		chatStore.saveTree(chatId, { nodes: [{ id: "arith", title: "Arithmetic" }], edges: [], version: 1 });
+		const tool = teachQuizToolFor({ chatId, chatStore });
+		assert.equal((await boundaryParse(tool, { ...validQuiz, options: withoutWhy(0) })).success, false);
+		const blank = await boundaryParse(tool, { ...validQuiz, options: blankWhy(1), correctAnswer: "42" });
+		assert.equal(blank.success, false);
+		const lines = problemLines(blank.error).join("\n");
+		assert.match(lines, /correctAnswer "42"/);
+		assert.match(lines, /options\[1\]\.explanation is empty/);
+		assert.equal((await boundaryParse(tool, validQuiz)).success, true);
+	});
+
+	it("ask options stay explanation-free: the ask schema never asks for one", () => {
+		const ask = { question: "Which first?", options: [{ label: "Limits" }, { label: "Series" }] };
+		assert.equal(Value.Check(askUserQuestionTool.parameters, ask), true);
+		assert.ok(!JSON.stringify(askUserQuestionTool.parameters).includes("why it is correct"));
+	});
+});
+
 // ─── the description example (owner, 2026-10-12) ─────────────────────────
 
 describe("quiz tool descriptions carry the complete, phase-correct example", () => {
@@ -224,6 +266,7 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 	});
 	it("the canonical body is schema-valid and authoring-clean (never ship a broken exemplar)", () => {
 		assert.deepEqual(quizInputProblems(quizExampleBody), []);
+		assert.deepEqual(quizOptionExplanationProblems(quizExampleBody.options), [], "every example option explains itself");
 		assert.equal(Value.Check(probeQuizInputSchema, quizExampleBody), true);
 		const teachExample = { ...teachExampleTags, ...quizExampleBody };
 		assert.equal(Value.Check(quizInputObject, teachExample), true);

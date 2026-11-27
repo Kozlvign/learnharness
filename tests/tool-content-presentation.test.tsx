@@ -149,6 +149,20 @@ test("historical source join restores matrices while retaining recorded order, a
 	assert.deepEqual({ answer, input }, before);
 });
 
+test("each option's own explanation joins from the original call like its label; unbound rows keep the snapshot", () => {
+	const source = { ...input, options: [{ label: a, value: "a", explanation: a }, { label: b, value: "b", explanation: b }] };
+	const answer = { ...historical(), options: [{ index: 1, label: brokenB, explanation: brokenB }, { index: 2, label: brokenA, explanation: brokenA }] };
+	const before = structuredClone({ answer, source });
+	assert.deepEqual(answerForPresentation(answer, source).options, [{ index: 1, label: b, explanation: b }, { index: 2, label: a, explanation: a }]);
+	const legacySource = { ...input };
+	assert.deepEqual(answerForPresentation(answer, legacySource).options, [{ index: 1, label: b, explanation: brokenB }, { index: 2, label: a, explanation: brokenA }],
+		"a call without per-option explanations keeps the snapshot's");
+	const ambiguous = { ...source, options: [...source.options, { label: "c", value: "c", explanation: "c" }] };
+	const unbound = { ...answer, answers: [], dontKnow: true, options: [...answer.options, { index: 3, label: "unknown", explanation: "kept" }] };
+	assert.deepEqual(answerForPresentation(unbound, ambiguous).options!.at(-1), { index: 3, label: "unknown", explanation: "kept" });
+	assert.deepEqual({ answer, source }, before);
+});
+
 test("historical ambiguous options and absent/invalid original calls retain their snapshots", () => {
 	const source = { ...input, options: [...input.options, { label: String.raw`$\begin{matrix}x\\y\end{matrix}$`, value: "c" }] };
 	const answer = { ...historical(), answers: [], dontKnow: true, options: [

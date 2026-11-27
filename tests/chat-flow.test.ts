@@ -59,9 +59,9 @@ process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 const QUIZ_INPUT = {
 	question: "Which planet is closest to the sun?",
 	options: [
-		{ label: "Venus" },
-		{ label: "Mercury" },
-		{ label: "Mars" },
+		{ label: "Venus", explanation: "Second from the sun." },
+		{ label: "Mercury", explanation: "The innermost planet." },
+		{ label: "Mars", explanation: "Fourth from the sun." },
 	],
 	correctAnswer: "Mercury",
 	explanation: "Mercury is the innermost planet.",
@@ -662,7 +662,10 @@ describe("teacher chat flow (scripted model)", () => {
 			question: "What is Nietzsche's genealogical claim about religion?",
 			type: "check",
 			nodeId: "genealogy",
-			options: [{ label: "A cultural diagnosis" }, { label: "Atheism as a conclusion" }],
+			options: [
+				{ label: "A cultural diagnosis", explanation: "Genealogy diagnoses." },
+				{ label: "Atheism as a conclusion", explanation: "It does not argue to atheism." },
+			],
 			correctAnswer: "cultural-diagnosis", // the exact live failure shape: a slug, no match
 			explanation: "Genealogy diagnoses, it does not convert.",
 		};

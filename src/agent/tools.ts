@@ -10,6 +10,7 @@ import {
 	parseOptionsIfString,
 	probeQuizInputSchema,
 	quizInputProblems,
+	quizOptionExplanationProblems,
 	teachExplainInputObject,
 	teachQuizInputObject,
 	teachTagProblems,
@@ -132,15 +133,28 @@ export const askUserQuestionTool: AgentTool<typeof askInputSchema> = {
  *  compact applied question whose fields exercise the escaping hazards —
  *  braced commands (\frac, \cos), inline and display math, newlines —
  *  while doubling as an exemplar of good craft: uniform options, stable
- *  values, reasoning (explanation) committed before correctAnswer.
+ *  values, each option's own explanation, reasoning (explanation)
+ *  committed before correctAnswer.
  *  JSON.stringify renders the wire text, so the escaping the model sees
  *  is by construction the correct one. Exported for the description pins. */
 export const quizExampleBody = {
 	question: "A signal is $y=\\sin(2x)$ and $\\frac{dx}{dt}=3$. What is $\\frac{dy}{dt}$?",
 	options: [
-		{ label: "$6\\cos(2x)$", value: "a" },
-		{ label: "$2\\cos(2x)$", value: "b" },
-		{ label: "$3\\cos(2x)$", value: "c" },
+		{
+			label: "$6\\cos(2x)$",
+			value: "a",
+			explanation: "Both rates multiply: $\\frac{dy}{dx}=2\\cos(2x)$, times $\\frac{dx}{dt}=3$.",
+		},
+		{
+			label: "$2\\cos(2x)$",
+			value: "b",
+			explanation: "This is $\\frac{dy}{dx}$ — it stops before multiplying by $\\frac{dx}{dt}=3$.",
+		},
+		{
+			label: "$3\\cos(2x)$",
+			value: "c",
+			explanation: "Multiplies by $\\frac{dx}{dt}=3$ but drops the inner factor $2$ from $\\frac{d}{dx}(2x)$.",
+		},
 	],
 	explanation:
 		"The phase changes twice as fast as $x$; multiply by the sine's slope:\n$$\n\\frac{dy}{dt}=\\cos(2x)\\cdot2\\cdot3=6\\cos(2x)\n$$",
@@ -240,7 +254,7 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
 	prepareArguments: prepareQuestionArguments,
 	executionMode: "sequential",
 	execute: async (_toolCallId, input) => {
-		const problems = quizInputProblems(input);
+		const problems = [...quizInputProblems(input), ...quizOptionExplanationProblems(input.options)];
 		if (problems.length > 0) return invalidInputResult("probe", problems);
 		return questionResult();
 	},
@@ -413,7 +427,7 @@ export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStor
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
-			const problems = [...quizInputProblems(input), ...teachTagProblems(input)];
+			const problems = [...quizInputProblems(input), ...quizOptionExplanationProblems(input.options), ...teachTagProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
 			if (problems.length > 0) return invalidInputResult("quiz", problems);
