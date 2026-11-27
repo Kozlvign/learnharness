@@ -226,8 +226,8 @@ function activate(ctx) {
 
   async function resolveModel(settings) {
     const catalog = await ctx.inference.catalog(); alive();
-    const pin = settings.modelOverride ? { model: settings.modelOverride } : catalog.slots?.cheap;
-    if (!pin?.model) fail('Configure the cheap model slot or choose a Flashcards model override.');
+    const pin = settings.modelOverride ? { model: settings.modelOverride } : catalog.slots?.strong;
+    if (!pin?.model) fail('Configure the Strong model slot or choose a Flashcards model override.');
     const entry = catalog.models.find(m => m.provider === pin.model.provider && m.id === pin.model.id);
     if (!entry) fail('The selected model is unavailable. Choose a configured model.');
     const thinkingLevel = settings.thinkingOverride ?? pin.thinkingLevel;

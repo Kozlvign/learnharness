@@ -982,22 +982,22 @@ test('settings parse minutes/hours, retain failed drafts and use acknowledged va
   } finally { h.dispose(); }
 });
 
-test('Follow cheap slot has its own toggle row; OFF pins current slot atomically and ON clears both overrides', async () => {
+test('Follow Strong slot has its own toggle row; OFF pins current slot atomically and ON clears both overrides', async () => {
   const h = await setup();
   try {
     h.mountSettings(); await flush();
     const general = h.handles.find(handle => handle.kind === 'rows');
     assert.ok(general.props.rows.some(row => row.key === 'retention'));
-    assert.equal(general.props.rows.some(row => row.key === 'followCheapSlot'), false);
-    const toggle = () => settingsRow(h, 'followCheapSlot');
+    assert.equal(general.props.rows.some(row => row.key === 'followStrongSlot'), false);
+    const toggle = () => settingsRow(h, 'followStrongSlot');
     assert.equal(toggle().type, 'toggle'); assert.equal(toggle().value, true); assertModelRows(h, true);
-    assert.equal([...h.settings.querySelectorAll('button')].some(node => node.textContent === 'Follow cheap slot'), false);
+    assert.equal([...h.settings.querySelectorAll('button')].some(node => node.textContent === 'Follow Strong slot'), false);
     assert.equal(savedSettings(h).length, 0, 'opening settings never pins the slot');
     await toggle().onChange(false);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'cheap' }, thinkingOverride: 'low' });
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'strong' }, thinkingOverride: 'low' });
     assert.equal(toggle().value, false); assertModelRows(h, false);
-    assert.deepEqual(picker(h, 'model').props.value, { provider: 'test', id: 'cheap' });
-    assert.deepEqual(picker(h, 'thinking').props.model, { provider: 'test', id: 'cheap' });
+    assert.deepEqual(picker(h, 'model').props.value, { provider: 'test', id: 'strong' });
+    assert.deepEqual(picker(h, 'thinking').props.model, { provider: 'test', id: 'strong' });
     assert.equal(picker(h, 'thinking').props.value, 'low'); assert.equal(picker(h, 'thinking').props.disabled, false);
     assert.equal(h.settings.querySelector('.fc-model-settings button'), null, 'no reset/default-thinking buttons remain');
     await picker(h, 'thinking').props.onChange('high');
@@ -1006,7 +1006,7 @@ test('Follow cheap slot has its own toggle row; OFF pins current slot atomically
     assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: null, thinkingOverride: null });
     assert.equal(toggle().value, true); assertModelRows(h, true);
     assert.equal(h.state.settings.modelOverride, null); assert.equal(h.state.settings.thinkingOverride ?? null, null);
-    assert.equal(Object.hasOwn(h.state.settings, 'followCheapSlot'), false, 'UI mode is not a new backend setting');
+    assert.equal(Object.hasOwn(h.state.settings, 'followStrongSlot'), false, 'UI mode is not a new backend setting');
   } finally { h.dispose(); }
 });
 
@@ -1014,22 +1014,22 @@ test('Model settings delegate the full label/toggle row to native rows and keep 
   const h = await setup();
   try {
     h.mountSettings(); await flush();
-    const area = h.settings.querySelector('.fc-model-settings'), follow = area.querySelector('.fc-follow-cheap-row');
+    const area = h.settings.querySelector('.fc-model-settings'), follow = area.querySelector('.fc-follow-strong-row');
     assert.ok(follow); assert.equal(follow.parentElement, area, 'the native settings row slot is a direct full-width child');
     assert.equal(area.querySelector('.fc-model-setting,.fc-label'), null, 'no plugin-owned Model label or label wrapper remains');
     assert.equal([...area.children].some(node => node.tagName === 'SPAN'), false);
-    const toggle = h.handles.find(handle => handle.kind === 'rows' && !handle.disposed && handle.props.rows.some(row => row.key === 'followCheapSlot'));
+    const toggle = h.handles.find(handle => handle.kind === 'rows' && !handle.disposed && handle.props.rows.some(row => row.key === 'followStrongSlot'));
     assert.equal(toggle.container, follow);
-    assert.deepEqual(toggle.props.rows.map(({ key, label, description, type }) => ({ key, label, description, type })), [{ key: 'followCheapSlot', label: 'Model', description: 'Follow cheap slot', type: 'toggle' }]);
-    assert.equal(Object.hasOwn(settingsRow(h, 'followCheapSlot'), 'controlLabel'), false, 'uses the existing native description field, not a caption API');
+    assert.deepEqual(toggle.props.rows.map(({ key, label, description, type }) => ({ key, label, description, type })), [{ key: 'followStrongSlot', label: 'Model', description: 'Follow Strong slot', type: 'toggle' }]);
+    assert.equal(Object.hasOwn(settingsRow(h, 'followStrongSlot'), 'controlLabel'), false, 'uses the existing native description field, not a caption API');
     assert.equal(follow.getAttribute('style'), null, 'the native row slot adds no inline font or alignment overrides');
-    assert.ok(follow.textContent.includes('Model')); assert.ok(follow.textContent.includes('Follow cheap slot'));
+    assert.ok(follow.textContent.includes('Model')); assert.ok(follow.textContent.includes('Follow Strong slot'));
     assert.equal(area.querySelector('p'), null, 'the plugin-owned explanatory paragraph is removed');
     assert.equal(area.querySelector('button'), null, 'there are no standalone follow/reset/default-thinking buttons');
     assertModelRows(h, true);
-    await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.equal(settingsRow(h, 'followCheapSlot').label, 'Model');
-    assert.equal(settingsRow(h, 'followCheapSlot').description, 'Follow cheap slot');
+    await settingsRow(h, 'followStrongSlot').onChange(false);
+    assert.equal(settingsRow(h, 'followStrongSlot').label, 'Model');
+    assert.equal(settingsRow(h, 'followStrongSlot').description, 'Follow Strong slot');
     const overrides = area.querySelector('.fc-model-overrides');
     assert.equal(overrides.parentElement, area); assert.equal(overrides.previousElementSibling, follow);
     assertModelRows(h, false); assert.equal(overrides.children.length, 2);
@@ -1038,32 +1038,32 @@ test('Model settings delegate the full label/toggle row to native rows and keep 
     assert.ok(overrides.children[1].contains(picker(h, 'thinking').container));
     assert.equal(overrides.querySelector('label,.fc-label,p,button'), null, 'only native picker mounts remain, with no duplicate labels or controls');
     assert.equal(area.querySelector('button'), null);
-    await settingsRow(h, 'followCheapSlot').onChange(true); assertModelRows(h, true);
-    assert.equal(settingsRow(h, 'followCheapSlot').description, 'Follow cheap slot');
+    await settingsRow(h, 'followStrongSlot').onChange(true); assertModelRows(h, true);
+    assert.equal(settingsRow(h, 'followStrongSlot').description, 'Follow Strong slot');
   } finally { h.dispose(); }
 });
 
-test('turning Follow cheap slot OFF without a slot thinking level pins null rather than inventing a level', async () => {
-  const h = await setup(h => { delete h.catalog.slots.cheap.thinkingLevel; });
+test('turning Follow Strong slot OFF without a slot thinking level pins null rather than inventing a level', async () => {
+  const h = await setup(h => { delete h.catalog.slots.strong.thinkingLevel; });
   try {
     h.mountSettings(); await flush();
-    await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'cheap' }, thinkingOverride: null });
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
+    await settingsRow(h, 'followStrongSlot').onChange(false);
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'strong' }, thinkingOverride: null });
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
   } finally { h.dispose(); }
 });
 
-test('thinking-only overrides stay OFF and resolve the current cheap model without autosaving or migrating settings', async () => {
+test('thinking-only overrides stay OFF and resolve the current strong model without autosaving or migrating settings', async () => {
   const pending = deferred();
   const h = await setup(h => { h.state.settings.thinkingOverride = 'high'; h.overrides['get-catalog'] = () => pending.promise; });
   try {
     h.mountSettings(); await flush();
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
     assert.equal(picker(h, 'thinking').props.disabled, true, 'catalog has not supplied an effective model yet');
     const before = JSON.stringify(h.state.settings);
-    const effective = { provider: 'test', id: 'updated-cheap' };
-    pending.resolve({ slots: { cheap: { model: effective, thinkingLevel: 'low' } } }); await flush();
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false);
+    const effective = { provider: 'test', id: 'updated-strong' };
+    pending.resolve({ slots: { strong: { model: effective, thinkingLevel: 'low' } } }); await flush();
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false);
     assert.deepEqual(picker(h, 'model').props.value, effective);
     assert.deepEqual(picker(h, 'thinking').props.model, effective);
     assert.equal(picker(h, 'thinking').props.value, 'high'); assert.equal(picker(h, 'thinking').props.disabled, false);
@@ -1076,34 +1076,34 @@ test('delayed catalog updates the effective slot while following and OFF explici
   const h = await setup(h => { h.overrides['get-catalog'] = () => pending.promise; });
   try {
     h.mountSettings(); await flush();
-    assert.equal(settingsRow(h, 'followCheapSlot').value, true); assertModelRows(h, true);
-    const effective = { provider: 'test', id: 'new-cheap' };
-    pending.resolve({ slots: { cheap: { model: effective, thinkingLevel: 'medium' } } }); await flush();
-    assert.equal(savedSettings(h).length, 0); assert.equal(settingsRow(h, 'followCheapSlot').value, true); assertModelRows(h, true);
-    await settingsRow(h, 'followCheapSlot').onChange(false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, true); assertModelRows(h, true);
+    const effective = { provider: 'test', id: 'new-strong' };
+    pending.resolve({ slots: { strong: { model: effective, thinkingLevel: 'medium' } } }); await flush();
+    assert.equal(savedSettings(h).length, 0); assert.equal(settingsRow(h, 'followStrongSlot').value, true); assertModelRows(h, true);
+    await settingsRow(h, 'followStrongSlot').onChange(false);
     assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: effective, thinkingOverride: 'medium' });
   } finally { h.dispose(); }
 });
 
-test('OFF without a cheap model is a local draft; selecting a model persists it and reopening restores acknowledged overrides', async () => {
+test('OFF without a strong model is a local draft; selecting a model persists it and reopening restores acknowledged overrides', async () => {
   const h = await setup(h => { h.catalog.slots = {}; });
   try {
     h.mountSettings(); await flush();
-    await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
+    await settingsRow(h, 'followStrongSlot').onChange(false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
     assert.equal(picker(h, 'model').props.value, undefined); assert.equal(picker(h, 'thinking').props.disabled, true);
     assert.equal(savedSettings(h).length, 0); assert.equal(h.state.settings.modelOverride, null);
     h.state.revision++; h.notify(); await flush();
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false, 'unrelated acknowledgements do not erase an unsaved OFF draft');
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false, 'unrelated acknowledgements do not erase an unsaved OFF draft');
     const model = { provider: 'test', id: 'chosen' };
     await picker(h, 'model').props.onChange(model);
     assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: model, thinkingOverride: null });
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assert.equal(picker(h, 'thinking').props.disabled, false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assert.equal(picker(h, 'thinking').props.disabled, false);
     await picker(h, 'thinking').props.onChange('high');
     const saves = savedSettings(h).length;
     h.unmountSettings(); h.mountSettings(); await flush();
     assert.equal(savedSettings(h).length, saves, 'reopening does not rewrite persisted overrides');
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
     assert.deepEqual(picker(h, 'model').props.value, model); assert.equal(picker(h, 'thinking').props.value, 'high');
   } finally { h.dispose(); }
 });
@@ -1113,21 +1113,21 @@ test('OFF draft survives a late catalog without auto-saving, including after a f
   const h = await setup(h => { h.overrides['get-catalog'] = () => pending.promise; });
   try {
     h.mountSettings(); await flush();
-    await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assert.equal(savedSettings(h).length, 0);
+    await settingsRow(h, 'followStrongSlot').onChange(false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assert.equal(savedSettings(h).length, 0);
     h.overrides['save-settings'] = async () => { throw new Error('Cannot clear overrides'); };
-    await Promise.resolve(settingsRow(h, 'followCheapSlot').onChange(true)).catch(() => {});
+    await Promise.resolve(settingsRow(h, 'followStrongSlot').onChange(true)).catch(() => {});
     assert.ok(h.settings.textContent.includes('Cannot clear overrides'));
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
-    const model = { provider: 'test', id: 'late-cheap' };
-    pending.resolve({ slots: { cheap: { model, thinkingLevel: 'low' } } }); await flush();
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
+    const model = { provider: 'test', id: 'late-strong' };
+    pending.resolve({ slots: { strong: { model, thinkingLevel: 'low' } } }); await flush();
     assert.equal(savedSettings(h).length, 1, 'catalog arrival must not trigger a second save');
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
     assert.deepEqual(picker(h, 'model').props.value, model); assert.equal(picker(h, 'thinking').props.disabled, false);
     assert.equal(h.state.settings.modelOverride, null);
     delete h.overrides['save-settings'];
-    await settingsRow(h, 'followCheapSlot').onChange(true);
-    assert.equal(settingsRow(h, 'followCheapSlot').value, true); assertModelRows(h, true);
+    await settingsRow(h, 'followStrongSlot').onChange(true);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, true); assertModelRows(h, true);
   } finally { h.dispose(); }
 });
 
@@ -1136,20 +1136,20 @@ test('pending model saves disable toggle and pickers; failures restore acknowled
   try {
     h.mountSettings(); await flush();
     const failed = deferred(); h.overrides['save-settings'] = () => failed.promise;
-    const turningOff = Promise.resolve(settingsRow(h, 'followCheapSlot').onChange(false)).catch(() => {});
-    assert.equal(settingsRow(h, 'followCheapSlot').disabled, true);
+    const turningOff = Promise.resolve(settingsRow(h, 'followStrongSlot').onChange(false)).catch(() => {});
+    assert.equal(settingsRow(h, 'followStrongSlot').disabled, true);
     assert.equal(picker(h, 'model').props.disabled, true); assert.equal(picker(h, 'thinking').props.disabled, true);
     failed.reject(new Error('Pin unavailable')); await turningOff; await flush();
     assert.ok(h.settings.textContent.includes('Pin unavailable'));
-    assert.equal(settingsRow(h, 'followCheapSlot').value, true); assert.equal(settingsRow(h, 'followCheapSlot').disabled, false); assertModelRows(h, true);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, true); assert.equal(settingsRow(h, 'followStrongSlot').disabled, false); assertModelRows(h, true);
     assert.equal(h.state.settings.modelOverride, null);
-    delete h.overrides['save-settings']; await settingsRow(h, 'followCheapSlot').onChange(false);
+    delete h.overrides['save-settings']; await settingsRow(h, 'followStrongSlot').onChange(false);
     const acknowledged = JSON.stringify(h.state.settings);
     h.overrides['save-settings'] = async () => { throw new Error('Clear unavailable'); };
-    await Promise.resolve(settingsRow(h, 'followCheapSlot').onChange(true)).catch(() => {});
+    await Promise.resolve(settingsRow(h, 'followStrongSlot').onChange(true)).catch(() => {});
     assert.ok(h.settings.textContent.includes('Clear unavailable'));
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
-    assert.deepEqual(picker(h, 'model').props.value, { provider: 'test', id: 'cheap' });
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
+    assert.deepEqual(picker(h, 'model').props.value, { provider: 'test', id: 'strong' });
     assert.equal(picker(h, 'thinking').props.value, 'low');
     assert.equal(JSON.stringify(h.state.settings), acknowledged);
   } finally { h.dispose(); }
@@ -1163,18 +1163,18 @@ test('failed model and thinking edits retain the acknowledged override values an
     const before = JSON.stringify(h.state.settings), pending = deferred();
     h.overrides['save-settings'] = () => pending.promise;
     const changing = Promise.resolve(picker(h, 'model').props.onChange({ provider: 'test', id: 'replacement' })).catch(() => {});
-    assert.equal(settingsRow(h, 'followCheapSlot').disabled, true);
+    assert.equal(settingsRow(h, 'followStrongSlot').disabled, true);
     assert.equal(picker(h, 'model').props.disabled, true); assert.equal(picker(h, 'thinking').props.disabled, true);
     assert.equal(h.settings.querySelector('.fc-model-settings button'), null, 'busy state does not recreate a reset control');
     pending.reject(new Error('Model update failed')); await changing; await flush();
     assert.ok(h.settings.textContent.includes('Model update failed'));
     assert.deepEqual(picker(h, 'model').props.value, original); assert.equal(picker(h, 'thinking').props.value, 'high');
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
+    assert.equal(settingsRow(h, 'followStrongSlot').value, false); assertModelRows(h, false);
     assert.equal(JSON.stringify(h.state.settings), before);
     h.overrides['save-settings'] = async () => { throw new Error('Thinking update failed'); };
     await Promise.resolve(picker(h, 'thinking').props.onChange('low')).catch(() => {});
     assert.ok(h.settings.textContent.includes('Thinking update failed'));
-    assert.equal(picker(h, 'thinking').props.value, 'high'); assert.equal(settingsRow(h, 'followCheapSlot').value, false);
+    assert.equal(picker(h, 'thinking').props.value, 'high'); assert.equal(settingsRow(h, 'followStrongSlot').value, false);
     assert.equal(JSON.stringify(h.state.settings), before);
   } finally { h.dispose(); }
 });
@@ -1186,15 +1186,15 @@ test('late catalog resolution after Settings unmount cannot remount controls, sa
     h.mountSettings(); await flush();
     const oldModel = picker(h, 'model'), oldThinking = picker(h, 'thinking');
     h.unmountSettings(); const handles = h.handles.length, calls = h.calls.length;
-    pending.resolve({ slots: { cheap: { model: { provider: 'test', id: 'stale-cheap' }, thinkingLevel: 'high' } } }); await flush();
+    pending.resolve({ slots: { strong: { model: { provider: 'test', id: 'stale-strong' }, thinkingLevel: 'high' } } }); await flush();
     assert.equal(oldModel.disposed, true); assert.equal(oldThinking.disposed, true);
     assert.equal(h.settings.children.length, 0); assert.equal(h.handles.length, handles); assert.equal(h.calls.length, calls);
     delete h.overrides['get-catalog'];
-    h.catalog.slots.cheap.model.id = 'fresh-cheap'; h.catalog.slots.cheap.thinkingLevel = 'medium';
+    h.catalog.slots.strong.model.id = 'fresh-strong'; h.catalog.slots.strong.thinkingLevel = 'medium';
     h.mountSettings(); await flush();
-    assert.notEqual(picker(h, 'model'), oldModel); assert.equal(settingsRow(h, 'followCheapSlot').value, true);
-    await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'fresh-cheap' }, thinkingOverride: 'medium' });
+    assert.notEqual(picker(h, 'model'), oldModel); assert.equal(settingsRow(h, 'followStrongSlot').value, true);
+    await settingsRow(h, 'followStrongSlot').onChange(false);
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'fresh-strong' }, thinkingOverride: 'medium' });
   } finally { h.dispose(); }
 });
 

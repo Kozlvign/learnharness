@@ -26,7 +26,7 @@ function fixture(document) {
   const overrides = {};
   let filePreflight;
   const manualReceipts = new Map(), deletionReceipts = new Map();
-  const catalog = { slots: { cheap: { model: { provider: 'test', id: 'cheap' }, thinkingLevel: 'low' } } };
+  const catalog = { slots: { strong: { model: { provider: 'test', id: 'strong' }, thinkingLevel: 'low' } } };
   const clone = value => JSON.parse(JSON.stringify(value));
   function handle(kind, container, props, signal, render, cleanup) {
     let current = props, disposed = false;

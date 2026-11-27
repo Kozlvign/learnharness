@@ -360,7 +360,7 @@ export function activate(ctx) {
     error.setAttribute('role', 'alert'); root.append(fields, modelArea, error); container.append(root);
     let initialized = false, rows, followRows, modelPicker, thinkingPicker, modelPickers, modelRow, thinkingRow, catalog = null;
     let overrideDraft = false, modelBusy = false;
-    const followingCheap = settings => !overrideDraft && !settings.modelOverride && settings.thinkingOverride == null;
+    const followingStrong = settings => !overrideDraft && !settings.modelOverride && settings.thinkingOverride == null;
     const showError = cause => { if (!signal.aborted) error.textContent = message(cause); };
     const save = async patch => {
       try { const state = await ctx.call('save-settings', patch); if (signal.aborted) return; error.textContent = ''; publish(state); rows?.update({ rows: settingsRows(snapshot.settings) }); updateModels(snapshot.settings); }
@@ -382,34 +382,34 @@ export function activate(ctx) {
       try { await save(patch); if (!signal.aborted) overrideDraft = false; }
       finally { modelBusy = false; if (!signal.aborted) updateModels(snapshot.settings); }
     };
-    const followCheapRow = settings => ({ key: 'followCheapSlot', label: 'Model', description: 'Follow cheap slot', type: 'toggle', value: followingCheap(settings), disabled: modelBusy,
+    const followStrongRow = settings => ({ key: 'followStrongSlot', label: 'Model', description: 'Follow Strong slot', type: 'toggle', value: followingStrong(settings), disabled: modelBusy,
       onChange: async follow => {
         if (modelBusy || signal.aborted) return;
         if (follow) await changeModels({ modelOverride: null, thinkingOverride: null });
-        else if (catalog?.slots?.cheap?.model) await changeModels({ modelOverride: catalog.slots.cheap.model, thinkingOverride: catalog.slots.cheap.thinkingLevel ?? null });
+        else if (catalog?.slots?.strong?.model) await changeModels({ modelOverride: catalog.slots.strong.model, thinkingOverride: catalog.slots.strong.thinkingLevel ?? null });
         else { overrideDraft = true; updateModels(snapshot.settings); }
       },
     });
     const updateModels = settings => {
-      const following = followingCheap(settings), model = settings.modelOverride || catalog?.slots?.cheap?.model || undefined;
-      followRows?.update({ rows: [followCheapRow(settings)] });
+      const following = followingStrong(settings), model = settings.modelOverride || catalog?.slots?.strong?.model || undefined;
+      followRows?.update({ rows: [followStrongRow(settings)] });
       if (modelPickers) modelPickers.hidden = following;
       if (modelRow) modelRow.hidden = following;
       if (thinkingRow) thinkingRow.hidden = following;
       modelPicker?.update({ value: model, disabled: following || modelBusy });
-      thinkingPicker?.update({ model, value: settings.thinkingOverride ?? (settings.modelOverride ? undefined : catalog?.slots?.cheap?.thinkingLevel), disabled: following || modelBusy || !model });
+      thinkingPicker?.update({ model, value: settings.thinkingOverride ?? (settings.modelOverride ? undefined : catalog?.slots?.strong?.thinkingLevel), disabled: following || modelBusy || !model });
     };
     observe((state, loadError) => {
       if (signal.aborted) return; if (loadError) { showError(loadError); return; }
       if (!initialized) {
         initialized = true; rows = widget(ctx.ui.mountSettingsRows(fields, { rows: settingsRows(state.settings) }, { signal }), signal);
-        const followSlot = el('div', 'fc-follow-cheap-row');
+        const followSlot = el('div', 'fc-follow-strong-row');
         modelPickers = el('div', 'fc-model-overrides');
         modelRow = el('div', 'fc-model-row'); thinkingRow = el('div', 'fc-thinking-row');
         const modelSlot = el('div'), thinkingSlot = el('div');
         modelRow.append(modelSlot); thinkingRow.append(thinkingSlot);
         modelPickers.append(modelRow, thinkingRow); modelArea.append(followSlot, modelPickers);
-        followRows = widget(ctx.ui.mountSettingsRows(followSlot, { rows: [followCheapRow(state.settings)] }, { signal }), signal);
+        followRows = widget(ctx.ui.mountSettingsRows(followSlot, { rows: [followStrongRow(state.settings)] }, { signal }), signal);
         modelPicker = widget(ctx.ui.mountModelPicker(modelSlot, { value: state.settings.modelOverride || undefined, onChange: async value => { try { await changeModels({ modelOverride: value, thinkingOverride: null }); } catch { /* Keep error visible. */ } } }, { signal }), signal);
         thinkingPicker = widget(ctx.ui.mountThinkingPicker(thinkingSlot, { model: state.settings.modelOverride || undefined, value: state.settings.thinkingOverride ?? undefined, onChange: async value => { try { await changeModels({ thinkingOverride: value }); } catch { /* Keep error visible. */ } } }, { signal }), signal);
         updateModels(state.settings);

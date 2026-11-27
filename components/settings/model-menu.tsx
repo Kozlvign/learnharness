@@ -41,6 +41,7 @@ export function ModelMenuList({
 	onPick,
 	footer,
 	vision,
+	none,
 }: {
 	/** The full catalog — undefined while it loads. */
 	models: ModelCatalogEntry[] | undefined;
@@ -59,6 +60,8 @@ export function ModelMenuList({
 	 *  custom-endpoint model, whose capability the endpoint may not report.
 	 *  Image-capable ones float to the top. */
 	vision?: boolean;
+	/** An optional slot (Vision): a leading row that clears the choice. */
+	none?: { label: string; selected: boolean; onPick: () => void };
 }) {
 	// Vision slot: built-ins must report image input; custom-endpoint models
 	// stay selectable (the endpoint may not report a modality). Image-capable
@@ -82,6 +85,7 @@ export function ModelMenuList({
 				placeholder="Search models…"
 				loading="Loading models…"
 				empty="No models match."
+				leading={none ? { testid: "model-option-none", selected: none.selected, content: <span className="truncate text-card-foreground">{none.label}</span>, onPick: none.onPick } : undefined}
 				renderItem={(m) => <>
 					<span className="flex items-center justify-between gap-2">
 						<span className="truncate text-card-foreground">{m.name}</span>

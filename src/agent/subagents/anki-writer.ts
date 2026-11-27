@@ -276,7 +276,7 @@ export async function writeAnkiCards(opts: {
 	if (opts.misses.length === 0) return [];
 	// The caller resolves the engine; none = no background model (the
 	// pipeline keeps the misses waiting with ANKI_REASONS.noModel).
-	if (!opts.engine) throw new ModelsNotConfiguredError(["cheap"]);
+	if (!opts.engine) throw new ModelsNotConfiguredError(["strong"]);
 	const ids = ankiMissLocalIds(opts.misses);
 	const existingIds = new Set(opts.existing.map((card) => card.id));
 	const t0 = performance.now();

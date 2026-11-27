@@ -344,16 +344,23 @@ describe("keyStatusLine — the minimal at-a-glance state", () => {
 });
 
 describe("first-run gate — slotsConfigured + setupStage (model-slots wave)", () => {
-	it("slotsConfigured: all three slot models required — thinking levels are optional", () => {
+	it("slotsConfigured: only the strong slot model is required (owner, 2026-11-27) — thinking levels are optional", () => {
 		assert.equal(slotsConfigured(undefined), false, "no record = unconfigured");
 		assert.equal(slotsConfigured({}), false, "empty models section");
 		assert.equal(
 			slotsConfigured({
 				strong: { model: { provider: "zai", id: "glm-5.3-flash" } },
+			}),
+			true,
+			"vision is an optional fallback; cheap is unused",
+		);
+		assert.equal(
+			slotsConfigured({
 				cheap: { model: { provider: "zai", id: "glm-4.7-flash" } },
+				vision: { model: { provider: "openai", id: "gpt-5.2" } },
 			}),
 			false,
-			"vision missing",
+			"strong missing",
 		);
 		assert.equal(
 			slotsConfigured({

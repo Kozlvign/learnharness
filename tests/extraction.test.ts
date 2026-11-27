@@ -537,7 +537,7 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		const pipeline = createExtractionPipeline({ chatStore, graphStore: ledgers });
 		await assert.rejects(pipeline.runExtraction(chatId), (err: unknown) => {
 			assert.ok(err instanceof ModelsNotConfiguredError);
-			assert.deepEqual(err.envelope.missing, ["cheap"]); // extractor + auditor, both cheap-tier
+			assert.deepEqual(err.envelope.missing, ["strong"]); // extractor + auditor follow the session: strong tier
 			assert.equal(err.envelope.code, "models_not_configured");
 			return true;
 		});
@@ -565,12 +565,12 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 			assert.ok(err instanceof ProviderKeyMissingError);
 			assert.equal(err.envelope.code, "provider_key_missing");
 			assert.equal(err.envelope.provider, extractor.model.provider, "the provider of the keyless engine");
-			assert.deepEqual(err.envelope.slots, ["cheap"], "extractor + auditor are the cheap tier");
+			assert.deepEqual(err.envelope.slots, ["strong"], "extractor + auditor are the strong tier (the session's model)");
 			return true;
 		});
 		// FIRST offender surfaces (extractor before auditor) — and nothing
 		// ran: the refusal lands before any batch, no coverage writes.
-		assert.deepEqual(seen, [[extractor.model.provider, "cheap"]]);
+		assert.deepEqual(seen, [[extractor.model.provider, "strong"]]);
 		assert.equal(ledgers.readCoverage().length, 0);
 	});
 
@@ -2579,7 +2579,34 @@ describe("notes import completion and retry reliability", () => {
 		assert.deepEqual(await make(ledgers, submitModel("submit_findings", { propositions: [], chains: [] })).importNotes(input), { nodes: 0, chains: 0 });
 		assert.deepEqual(await make(ledgers).importNotes({ ...input, text: " \n" }), { nodes: 0, chains: 0 });
 		await assert.rejects(createExtractionPipeline({ chatStore, graphStore: ledgers }).importNotes({ ...input, text: "" }), ModelsNotConfiguredError);
-		await assert.rejects(createExtractionPipeline({ chatStore, graphStore: ledgers, extractor: submitModel("submit_findings", NOTES_FINDINGS), auditor: submitModel("submit_review", NOTES_VERDICT), providerKeyMissing: () => providerKeyMissing("openai", ["cheap"]) }).importNotes(input), ProviderKeyMissingError);
+		await assert.rejects(createExtractionPipeline({ chatStore, graphStore: ledgers, extractor: submitModel("submit_findings", NOTES_FINDINGS), auditor: submitModel("submit_review", NOTES_VERDICT), providerKeyMissing: () => providerKeyMissing("openai", ["strong"]) }).importNotes(input), ProviderKeyMissingError);
+	});
+
+	it("the stages follow the session (owner, 2026-11-27): a chat run passes its chatId, a notes import none", async () => {
+		const seen: Array<[string, string | undefined]> = [];
+		const engineFor = async (role: string, chatId?: string) => {
+			seen.push([role, chatId]);
+			return role === "auditor" ? submitModel("submit_review", NOTES_VERDICT) : submitModel("submit_findings", NOTES_FINDINGS);
+		};
+		assert.deepEqual(await createExtractionPipeline({ chatStore, graphStore: memoryLedgers(), engineFor }).importNotes(input), { nodes: 1, chains: 0 }, "an asynchronous resolver runs the import");
+		assert.ok(seen.length >= 4 && seen.every(([, chatId]) => chatId === undefined), "notes have no session: every stage resolves without a chatId");
+		seen.length = 0;
+		const { chatId } = fixtureChat();
+		await createExtractionPipeline({ chatStore, graphStore: memoryLedgers(), engineFor: (role, id) => {
+			seen.push([role, id]);
+			return role === "auditor" ? submitModel("submit_review", { links: [] }) : submitModel("submit_findings", FINDINGS);
+		} }).runExtraction(chatId);
+		assert.deepEqual(seen.slice(0, 2), [["extractor", chatId], ["auditor", chatId]], "the gate resolves both stages for the session");
+		assert.ok(seen.every(([, id]) => id === chatId), "every stage call names the session");
+	});
+
+	it("a resolver refusal surfaces as the typed errors before any chunk; a throwing resolver fails the import", async () => {
+		const refusing = (refusal: unknown) => createExtractionPipeline({ chatStore, graphStore: memoryLedgers(), engineFor: () => ({ refusal }) as never });
+		await assert.rejects(refusing({ kind: "models", tier: "strong" }).importNotes(input), (err: unknown) => err instanceof ModelsNotConfiguredError && err.envelope.missing.join() === "strong");
+		await assert.rejects(refusing({ kind: "key", envelope: providerKeyMissing("antigravity", ["strong"]) }).importNotes(input), (err: unknown) => err instanceof ProviderKeyMissingError && err.envelope.provider === "antigravity");
+		await assert.rejects(refusing({ kind: "unavailable", tier: "strong", error: "The selected model is unavailable." }).importNotes(input), (err: unknown) => err instanceof NotesImportError && /selected model is unavailable/.test(err.message));
+		const throwing = createExtractionPipeline({ chatStore, graphStore: memoryLedgers(), engineFor: async () => { throw new Error("catalog has no model x"); } });
+		await assert.rejects(throwing.importNotes(input), (err: unknown) => err instanceof NotesImportError && /catalog has no model x/.test(err.message));
 	});
 
 	it("isolates an ordinary failed chunk, reports partial, and keeps earlier/later merges and usage", async () => {

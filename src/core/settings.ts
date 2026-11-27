@@ -75,7 +75,14 @@ export interface RoleModelOverride {
  *  strong = prober + teacher (also the per-session default-teacher
  *  starting point); cheap = researcher, demo-builder, extractor, auditor,
 ; vision = visual-maker + pdf-reader. Resolution per role:
- *  ROLE OVERRIDE → slot → factory pin. */
+ *  ROLE OVERRIDE → slot → factory pin.
+ *
+ *  Session helpers (owner, 2026-11-27): every helper role now runs on the
+ *  session's own teacher model (chat.model → strong — see
+ *  resolveSessionSubagentSpec); vision is only the fallback for the
+ *  visual-maker and pdf-reader when that model is text-only. "cheap" stays
+ *  in the list so older settings files still read and write unchanged,
+ *  but no role draws from it any more. */
 export const MODEL_SLOTS = ["strong", "cheap", "vision"] as const;
 export type ModelSlotName = (typeof MODEL_SLOTS)[number];
 
@@ -312,24 +319,29 @@ export function customProviderUsable(
 }
 
 /** First-run gate (model-slots wave, owner 2026-09-20): the app refuses
- *  to start chats until the user has actively picked all three slots —
- *  there ARE no defaults for 33 providers; a configured app is one whose
- *  models section carries a model in every slot. Thinking levels stay
+ *  to start chats until the user has actively picked a model — there ARE
+ *  no defaults for 33 providers. Since the helpers follow the session's
+ *  model (owner, 2026-11-27), only the strong slot is required; vision is
+ *  an optional fallback and cheap is no longer used. Thinking levels stay
  *  optional (absent = the resolved tier's budget). */
 export function slotsConfigured(models: ModelsSettings | undefined): boolean {
-	return Boolean(models?.strong?.model && models?.cheap?.model && models?.vision?.model);
+	return Boolean(models?.strong?.model);
 }
 
 /** Which slot a role draws from (model slots wave, 2026-09-20). Includes the
  *  conversation pair and pdfReader (not BackgroundModelRoles — the slot
- *  tier spans every role; only background roles surface per-role overrides). */
+ *  tier spans every role; only background roles surface per-role overrides).
+ *  Outside a session (notes import) a role runs this slot; inside one it
+ *  runs the session's model (resolveSessionSubagentSpec). The vision roles
+ *  keep "vision" as their fallback tier for a text-only session model
+ *  (owner, 2026-11-27). */
 export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	prober: "strong",
 	teacher: "strong",
-	researcher: "cheap",
-	demoBuilder: "cheap",
-	extractor: "cheap",
-	auditor: "cheap",
+	researcher: "strong",
+	demoBuilder: "strong",
+	extractor: "strong",
+	auditor: "strong",
 	visualMaker: "vision",
 	pdfReader: "vision",
 	sideQuestion: "strong", // the conversation chain, like prober/teacher (resolveSideQuestionSpec)

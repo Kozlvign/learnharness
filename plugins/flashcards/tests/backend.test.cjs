@@ -80,8 +80,8 @@ function harness(t, initialGraph = graph('p1')) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'flashcards-test-'));
   const workers = workerService();
   const h = { graph: initialGraph, workers, directory, catalogReads: 0, catalog: {
-    slots: { cheap: { model: { provider: 'mock', id: 'cheap' }, thinkingLevel: 'off' } },
-    models: [{ provider: 'mock', id: 'cheap', name: 'Mock cheap', supportedLevels: ['off', 'low'], contextWindow: 100000, maxTokens: 8192 }],
+    slots: { strong: { model: { provider: 'mock', id: 'strong' }, thinkingLevel: 'off' } },
+    models: [{ provider: 'mock', id: 'strong', name: 'Mock strong', supportedLevels: ['off', 'low'], contextWindow: 100000, maxTokens: 8192 }],
   } };
   let handlers, controller, cleanups = [];
   h.dispose = () => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); controller?.abort(); };
@@ -490,7 +490,7 @@ test('identical files reopen renamed decks without catalog access; deleting the 
   const reviews = h.disk().reviews;
   await h.call('delete-deck', { id: source.deckId });
   await assert.rejects(h.call('open-file-deck', { sourceId: source.id }), /File source not found/);
-  h.catalog.slots.cheap = { model: { provider: 'mock', id: 'cheap' }, thinkingLevel: 'off' };
+  h.catalog.slots.strong = { model: { provider: 'mock', id: 'strong' }, thinkingLevel: 'off' };
   assert.ok((await h.call('preflight-file', input)).id);
   assert.equal(h.state().decks.length, 0); assert.equal(h.state().propositions.length, 0);
   assert.deepEqual(h.disk().reviews, reviews); assert.equal(h.workers.starts, 1);
@@ -616,7 +616,7 @@ test('legacy graph records lacking origin or batch kind retain progress, graph a
   assert.deepEqual(h.disk().propositions.p1.schedule, legacy.propositions.p1.schedule);
 });
 
-test('clearing overrides follows cheap configuration and unrelated generation settings do not stale reviews', async t => {
+test('clearing overrides follows strong configuration and unrelated generation settings do not stale reviews', async t => {
   const h = harness(t);
   await h.generate(cards('p1', 'A cue'));
   const { ticket } = await h.call('next-review');
@@ -1209,7 +1209,7 @@ test('settings validate atomically and model resolution fails explicitly without
     assert.deepEqual(h.state(), before);
   }
   h.catalog.slots = {};
-  await assert.rejects(h.call('preflight', { propositionIds: ['p1'] }), /Configure the cheap model slot/);
+  await assert.rejects(h.call('preflight', { propositionIds: ['p1'] }), /Configure the Strong model slot/);
   assert.equal(h.workers.starts, 0);
   assert.deepEqual(h.state().propositions, []);
 });

@@ -16,11 +16,12 @@ import {
 	resolveConversationSpec,
 	resolveModelSpec,
 	resolveRoleSpec,
+	resolveSessionSubagentSpec,
 	resolveSettings,
 	resolveSideQuestionSpec,
 	resolveSlot,
 } from "../src/core/settings-resolution.ts";
-import { BACKGROUND_MODEL_ROLES, sanitizeUserSettings, type UserSettings } from "../src/core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, ROLE_SLOT, sanitizeUserSettings, slotsConfigured, type UserSettings } from "../src/core/settings.ts";
 
 describe("resolveSettings", () => {
 	it("worker concurrency defaults to 8, honors overrides, and returns to 8 after invalid disk values drop", () => {
@@ -81,7 +82,7 @@ describe("resolveSettings", () => {
 		assert.deepEqual(eff.agent.models.researcher, {
 			provider: "openrouter",
 			id: "qwen/qwen3.8-flash",
-			// thinking NOT overridden and no cheap slot → UNSET (the engine
+			// thinking NOT overridden and no strong slot → UNSET (the engine
 			// build resolves it from DEFAULT_THINKING_ORDER, not a pin).
 			thinkingLevel: undefined,
 		});
@@ -116,7 +117,7 @@ describe("resolveSettings", () => {
 	it("partial role override: thinkingLevel alone borrows the SLOT's model (or nothing, without one)", () => {
 		const eff = resolveSettings({
 			version: 1,
-			models: { cheap: { model: { provider: "zai", id: "glm-5.3-flash" } } },
+			models: { strong: { model: { provider: "zai", id: "glm-5.3-flash" } } },
 			agent: { models: { extractor: { thinkingLevel: "medium" } } },
 		});
 		assert.deepEqual(eff.agent.models.extractor, {
@@ -129,7 +130,7 @@ describe("resolveSettings", () => {
 	});
 
 	it("resolveModelSpec is field-independent per override aspect", () => {
-		const slots = { cheap: { model: { provider: "zai", id: "slot-model" }, thinkingLevel: "high" as const } };
+		const slots = { strong: { model: { provider: "zai", id: "slot-model" }, thinkingLevel: "high" as const } };
 		assert.deepEqual(
 			resolveModelSpec("auditor", { model: { provider: "other", id: "x" } }, slots),
 			{ provider: "other", id: "x", thinkingLevel: "high" }, // override model + slot level
@@ -145,7 +146,10 @@ describe("resolveSettings", () => {
 
 describe("the slot tier (BYOK, owner 2026-09-22)", () => {
 	it("slot alone re-tiers every role of its tier (no role overrides present)", () => {
-		const eff = resolveSettings({ version: 1, models: { cheap: { model: { provider: "zai", id: "glm-5.3-flash" } } } });
+		// The helpers' tier is strong since they follow the session (owner,
+		// 2026-11-27); a stored cheap slot re-tiers nothing.
+		assert.equal(resolveSettings({ version: 1, models: { cheap: { model: { provider: "zai", id: "old-cheap" } } } }).agent.models.researcher, undefined);
+		const eff = resolveSettings({ version: 1, models: { strong: { model: { provider: "zai", id: "glm-5.3-flash" } } } });
 		for (const role of ["researcher", "demoBuilder", "extractor", "auditor"] as const) {
 			assert.deepEqual(
 				eff.agent.models[role],
@@ -161,7 +165,7 @@ describe("the slot tier (BYOK, owner 2026-09-22)", () => {
 		const eff = resolveSettings({
 			version: 1,
 			agent: { models: { researcher: { model: { provider: "groq", id: "r-override" } } } },
-			models: { cheap: { model: { provider: "zai", id: "r-slot" }, thinkingLevel: "high" } },
+			models: { strong: { model: { provider: "zai", id: "r-slot" }, thinkingLevel: "high" } },
 		});
 		assert.deepEqual(eff.agent.models.researcher, {
 			provider: "groq",
@@ -178,7 +182,7 @@ describe("the slot tier (BYOK, owner 2026-09-22)", () => {
 		// a stored level WITHOUT a model is inert (kept on disk, no phantom default)
 		const inert = resolveSettings({ version: 1, models: { strong: { thinkingLevel: "medium" } } });
 		assert.equal(inert.models.strong, null);
-		assert.equal(inert.agent.models.researcher, undefined); // strong's emptiness must not leak into other tiers
+		assert.equal(inert.agent.models.researcher, undefined); // a level-only strong slot gives its roles no model
 	});
 
 	it("resolveSlot: configured iff the model is present", () => {
@@ -268,6 +272,76 @@ describe("resolveSideQuestionSpec", () => {
 		assert.deepEqual(resolveSideQuestionSpec(undefined, record), { provider: "openrouter", id: "strong-1", thinkingLevel: "low" });
 	});
 	it("is null with no model anywhere", () => { assert.equal(resolveSideQuestionSpec(undefined, null), null); });
+});
+
+describe("resolveSessionSubagentSpec (helpers follow the session's teacher, owner 2026-11-27)", () => {
+	const record: UserSettings = {
+		version: 1,
+		models: {
+			strong: { model: { provider: "openai", id: "strong-model" }, thinkingLevel: "low" },
+			cheap: { model: { provider: "chatgpt", id: "old-cheap" } },
+			vision: { model: { provider: "chatgpt", id: "vision-model" }, thinkingLevel: "medium" },
+		},
+	};
+	const chat = { model: { provider: "antigravity", id: "gemini-4-neon" }, thinkingLevel: "high" as const };
+	const helpers = ["researcher", "demoBuilder", "extractor", "auditor", "visualMaker", "pdfReader"] as const;
+
+	it("every helper runs the session's model with its thinking level, whatever cheap and vision hold", () => {
+		for (const role of helpers) {
+			assert.deepEqual(resolveSessionSubagentSpec(role, chat, record), {
+				spec: { provider: "antigravity", id: "gemini-4-neon", thinkingLevel: "high" },
+				tier: "strong",
+			}, role);
+		}
+	});
+
+	it("without a chat model the session runs the strong slot; without a session (notes import) too", () => {
+		for (const settings of [{}, undefined]) {
+			assert.deepEqual(resolveSessionSubagentSpec("extractor", settings, record), {
+				spec: { provider: "openai", id: "strong-model", thinkingLevel: "low" },
+				tier: "strong",
+			});
+		}
+		// A bare chat thinking level rides the strong slot's model.
+		assert.deepEqual(resolveSessionSubagentSpec("researcher", { thinkingLevel: "xhigh" }, record).spec, { provider: "openai", id: "strong-model", thinkingLevel: "xhigh" });
+	});
+
+	it("an explicit agent.models override wins field by field over the session", () => {
+		const overridden: UserSettings = { ...record, agent: { models: { researcher: { model: { provider: "groq", id: "r" } }, demoBuilder: { thinkingLevel: "minimal" } } } };
+		assert.deepEqual(resolveSessionSubagentSpec("researcher", chat, overridden).spec, { provider: "groq", id: "r", thinkingLevel: "high" });
+		assert.deepEqual(resolveSessionSubagentSpec("demoBuilder", chat, overridden).spec, { provider: "antigravity", id: "gemini-4-neon", thinkingLevel: "minimal" });
+	});
+
+	it("vision roles fall back to the vision slot ONLY for a text-only session model", () => {
+		const textOnly = { acceptsImages: () => false };
+		for (const role of ["visualMaker", "pdfReader"] as const) {
+			assert.equal(ROLE_SLOT[role], "vision");
+			assert.deepEqual(resolveSessionSubagentSpec(role, chat, record, { acceptsImages: () => true }).tier, "strong", role);
+			assert.deepEqual(resolveSessionSubagentSpec(role, chat, record, textOnly), {
+				spec: { provider: "chatgpt", id: "vision-model", thinkingLevel: "medium" },
+				tier: "vision",
+			}, role);
+			// No vision slot: nothing to fall back to — the caller refuses on vision.
+			assert.deepEqual(resolveSessionSubagentSpec(role, chat, { version: 1, models: { strong: record.models!.strong } }, textOnly), { spec: undefined, tier: "vision" });
+		}
+		// Text-only never moves the other helpers.
+		for (const role of ["researcher", "demoBuilder", "extractor", "auditor"] as const) {
+			assert.equal(resolveSessionSubagentSpec(role, chat, record, textOnly).tier, "strong", role);
+		}
+	});
+
+	it("no model anywhere → undefined on the strong tier (the image check is never asked)", () => {
+		let asked = 0;
+		assert.deepEqual(resolveSessionSubagentSpec("pdfReader", undefined, { version: 1, models: { vision: record.models!.vision } }, { acceptsImages: () => { asked++; return false; } }), { spec: undefined, tier: "strong" });
+		assert.equal(asked, 0);
+	});
+
+	it("slotsConfigured needs only strong (vision optional, cheap unused)", () => {
+		assert.equal(slotsConfigured({ strong: { model: { provider: "openai", id: "m" } } }), true);
+		assert.equal(slotsConfigured({ cheap: record.models!.cheap, vision: record.models!.vision }), false);
+		assert.equal(slotsConfigured({ strong: { thinkingLevel: "low" } }), false);
+		assert.equal(slotsConfigured(undefined), false);
+	});
 });
 
 describe("the graph channel gates (the wave's seam honoring)", () => {

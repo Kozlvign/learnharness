@@ -9,9 +9,9 @@ It works the way [T3 Code](https://github.com/pingdotgg/t3code) does. LearnHarne
 1. Open **Settings → Providers → Antigravity → Connect**.
 2. If agy is not installed, select **Install Antigravity**. LearnHarness downloads Google's official runtime (about 250 MB) for this computer into its own folder, checks it against the SHA-512 Google publishes, and only then uses it. An agy you installed yourself is found too (see [Executable](#what-agy-gets)).
 3. Select **Sign in with Google**, then **Open Google sign-in**. Sign in in your browser. Google's last page shows a code: paste it (or that page's whole address) into the dialog and select **Submit**. The dialog loads your plan and models on its own.
-4. Choose Antigravity models for your model slots, for example Gemini 4 Neon for *Strong* and Gemini 3.8 Flash for *Cheap*.
+4. Choose an Antigravity model for *Strong*, for example Gemini 4 Neon. A session's helpers (research, PDF reading, figures, the graph) run on the session's own model, so they use the same Antigravity model as the lesson. Gemini models read images, so *Vision* can stay empty.
 
-The dialog shows the signed-in account and plan, the agy version and your models, and the **Allow background use** switch: with it off, helper agents and automatic follow-ups never use your plan. **Switch account** signs in again; **Sign out** runs agy's own sign-out for this profile.
+The dialog shows the signed-in account and plan, the agy version and your models, and the **Allow background use** switch: with it off, helper agents and automatic follow-ups never use your plan, and a helper in an Antigravity session reports that instead of running elsewhere. **Switch account** signs in again; **Sign out** runs agy's own sign-out for this profile.
 
 Usage appears as "Antigravity" in cost displays, without dollar amounts, because it counts toward your Google plan rather than an API bill. The connection never falls back to an API key.
 
@@ -36,7 +36,7 @@ LearnHarness's agent loop (pi-agent-core) asks for one model response at a time 
 - **Images** go both ways natively: the learner's images in prompts, and images in tool results.
 - **Usage.** agy reports the conversation's size after each model call and the turn's token totals when the turn ends. A response that ends at a tool call carries its calls' sizes; the turn's last response carries the rest of the totals.
 
-At most six sessions are live at once. A session waiting for the learner closes after 3 idle hours, and any other session after 10 idle minutes. A closed session is resumed later when needed. One-shot plugin calls release their process right away.
+At most six sessions are live at once. A session waiting for the learner closes after 3 idle hours, and any other session after 10 idle minutes. A closed session is resumed later when needed. One-shot plugin calls and helper runs (researcher, PDF reader, figure maker, demo builder, extractor, auditor) release their process as soon as they end.
 
 Starting agy is never part of a fast path. The last check is cached (`state.json`), so the model list is ready when the app starts. agy runs to check again only on **Check again**, when the dialog opens, after sign-in and after an install.
 

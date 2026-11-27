@@ -185,23 +185,27 @@ describe("AgentSection (thin SSR)", () => {
 		assert.ok(tagOf(render({ workerRequestConcurrency: 23 }), "input-worker-request-concurrency").includes('value="23"'));
 	});
 
-	it("renders the three model SLOT rows (slots-only, fix wave: unpicked reads —, no Default option)", () => {
+	it("renders the Strong and Vision SLOT rows (slots-only, fix wave: unpicked reads —, no Default option)", () => {
 		const html = renderToStaticMarkup(<AgentSection agent={undefined} models={undefined} graph={undefined} onSectionChange={() => true} onModelsChange={() => {}} />);
-		for (const slot of ["strong", "cheap", "vision"]) {
+		// The helpers follow the session's model (owner, 2026-11-27): the
+		// unused Cheap slot is not offered.
+		assert.ok(!html.includes('data-testid="slot-row-cheap"'), "no Cheap row");
+		for (const slot of ["strong", "vision"]) {
 			assert.ok(html.includes(`data-testid="slot-row-${slot}"`), slot);
 			// The shared model-picker dropdown as the opened menu (owner,
 			// 2026-09-20), the thin trigger as the collapsed look.
 			assert.ok(html.includes(`data-testid="slot-model-${slot}"`), `${slot} model trigger`);
 			assert.ok(html.includes(`data-testid="slot-thinking-${slot}"`), `${slot} thinking trigger`);
 			// the roster hint rides every row
-			assert.ok(html.includes("The main model for your sessions") || slot !== "strong", "strong roster");
+			assert.ok(html.includes("The main model for your sessions and their assistants") || slot !== "strong", "strong roster");
+			assert.ok(html.includes("Optional: draws figures and reads PDFs when the session&#x27;s model can&#x27;t see images") || slot !== "vision", "vision roster");
 		}
 		// Fix wave: no Default anywhere — an unpicked slot reads "—"
 		// (the owner's no-factory-fallback language), and no menu
 		// carries a Default row (menu-default testid is retired).
 		assert.equal((html.match(/>Default<\/span>/g) ?? []).length, 0, "no Default trigger");
 		assert.ok(!html.includes('data-testid="menu-default"'), "no Default row");
-		assert.equal((html.match(/>—<\/span>/g) ?? []).length, 6, "three slots × two — triggers");
+		assert.equal((html.match(/>—<\/span>/g) ?? []).length, 4, "two slots × two — triggers");
 		// the per-role rows are GONE (slots-only)
 		for (const role of ["researcher", "demoBuilder", "visualMaker"]) {
 			assert.ok(!html.includes(`data-testid="role-row-${role}"`), `${role} retired`);

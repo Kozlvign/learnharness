@@ -8,7 +8,7 @@ LearnHarness supports **one custom OpenAI-compatible endpoint with multiple mode
 2. Enter the complete API base URL, such as `http://localhost:11434/v1`. LearnHarness **does not append `/v1`**. HTTP/HTTPS and private-network addresses are supported; embedded credentials, query strings, fragments, and discovery redirects are rejected.
 3. Choose **Keyless** or **API key**. Keyless ignores saved/environment custom keys. API key uses `CUSTOM_OPENAI_API_KEY`; a real environment value overrides a saved value, and the editor identifies environment ownership.
 4. Optionally enter model IDs, separated by commas or whitespace, for servers without working model discovery.
-5. Click **Connect**, then select Strong, Cheap, and Vision models.
+5. Click **Connect**, then select a Strong model (Vision is optional).
 
 A key is bound to the canonical endpoint URL and authentication mode. Changing the URL requires a new effective key or explicit consent to reuse it; it is never silently forwarded. Clearing authentication selects Keyless. Use this editor—not generic key management—to change custom credentials.
 

@@ -23,7 +23,7 @@ For a community/developer plugin, build in its source directory and follow the [
 
 Core data lives in `<learning data>/core-plugin-data/<id>/`; community code/data remains `<learning data>/plugins/<id>/{dist,data}/`. All newly discovered plugins start disabled. Core code is never copied into the learning-data directory, and switching to this layout does not migrate old development data.
 
-No key is needed to open the UI. Configure connections and the Strong/Cheap/Vision slots before model-driven use; there are no factory model selections. OpenRouter is supported, not mandatory.
+No key is needed to open the UI. Configure connections and the Strong slot (Vision is optional) before model-driven use; there are no factory model selections. OpenRouter is supported, not mandatory.
 
 ```sh
 npm run build          # stage core plugins, then Next production/standalone build

@@ -14,7 +14,6 @@ import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "..
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
-import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
 	noteSteersDurable,
@@ -44,9 +43,9 @@ import {
 	extractionEnabled,
 	graphToolsEnabled,
 	resolveConversationSpec,
-	resolveRoleSpec,
 } from "../core/settings-resolution.ts";
-import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
+import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
+import { sessionSubagentEngine } from "./subagent-engines.ts";
 import { beginTurn, endTurn, isTurnRunning } from "./turn-liveness.ts";
 import { claimPreparingTurn, type TurnPreparation } from "./turn-preparation.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
@@ -114,12 +113,11 @@ const jobRunner = createJobRunner({
 	chatStore: stores.chatStore,
 	jobStore: stores.jobStore,
 	deliver: deliverJobResult,
-	// BYOK (owner, 2026-09-22): job engines resolve the chain — role
-	// override → slot → NOTHING — read FRESH per job (a settings PUT
-	// between dispatch and spawn lands); an empty chain flows through as
-	// undefined and the runner refuses the spawn honestly.
-	engineFor: (role) =>
-		resolveEngine(role),
+	// Helpers follow the session's teacher model (owner, 2026-11-27):
+	// chat.model → strong slot, vision only for a text-only session model,
+	// read FRESH per job (a settings PUT between dispatch and spawn lands);
+	// an empty chain or a missing connection refuses the spawn honestly.
+	engineFor: sessionSubagentEngine,
 	// Key-presence gate (provider-key interlude, 2026-09-25): the runner
 	// reads the resolved engine's provider and asks THIS check (the agent
 	// layer may not read the key store); a missing key refuses the spawn
@@ -137,12 +135,11 @@ const jobRunner = createJobRunner({
  *  (/api/graph/import) hit the same single-flight registry. */
 export const extraction = createExtractionPipeline({
 	...stores,
-	// BYOK (owner, 2026-09-22): the extraction stages resolve the chain —
-	// role override → slot → NOTHING — read FRESH per stage call; an empty
-	// chain flows through as undefined and the pipeline refuses the run
-	// with the typed ModelsNotConfiguredError. Direct test values still win.
-	engineFor: (role) =>
-		resolveEngine(role),
+	// The extraction stages follow the session's teacher model (owner,
+	// 2026-11-27) — a notes import, with no session, runs the strong slot —
+	// read FRESH per stage call; an empty chain refuses the run with the
+	// typed ModelsNotConfiguredError. Direct test values still win.
+	engineFor: sessionSubagentEngine,
 	// Key-presence gate (provider-key interlude, 2026-09-25): same check
 	// the job runner gets — a stage engine whose provider key is gone
 	// refuses BEFORE any batch runs (the typed throw), never mid-run.
@@ -162,15 +159,6 @@ setTurnRunner(async (chatId, input) => {
 	await res.arrayBuffer().catch(() => undefined);
 	return res.status;
 });
-/** The settings-resolved engine for one role — BYOK (owner, 2026-09-22):
- *  the chain (role override → slot → NOTHING) may end empty, and undefined
- *  flows through to the per-need refusal gates (runner/extraction), read
- *  FRESH so a settings PUT between dispatch and spawn lands. */
-function resolveEngine(role: ModelRole): PiEngine | undefined {
-	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
-	return spec ? piEngineForSpec(spec, true, undefined, retentionForSlot(ROLE_SLOT[role])) : undefined;
-}
-
 /** Slot policy is independent of model overrides. Read fresh per operation,
  * including parked conversations, background loops and compaction. */
 function retentionForSlot(slot: ModelSlotName) {

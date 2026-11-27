@@ -150,7 +150,8 @@ describe("the background roles' resolved pins (rolePins)", () => {
 	it("a slot re-tiers its roles; overrides win for that role only", () => {
 		const record = {
 			version: 1,
-			models: { cheap: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } } },
+			// The helpers' tier is strong (they follow the session, owner 2026-11-27).
+			models: { strong: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } } },
 			agent: { models: { researcher: { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "high" as const } } },
 		};
 		const pins = rolePinsFor(resolveSettings(record).agent.models);

@@ -8,12 +8,12 @@ import {
 	FACTORY_SETTINGS,
 	ModelsNotConfiguredError,
 	ProviderKeyMissingError,
-	ROLE_SLOT,
 	type ModelSlotName,
 	type ProviderKeyMissing,
 } from "../../core/settings.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubagent } from "./pi-run.ts";
+import { chooseSubagentEngine, type SubagentEngineChoice, type SubagentEngineFor, type SubagentEngineRefusal } from "./engine-choice.ts";
 import type {
 	AuditVerdicts,
 	CallUsage,
@@ -719,12 +719,14 @@ export interface ExtractionModels {
 	 *  engineFor chain (production wires no direct values). */
 	extractor?: PiEngine;
 	auditor?: PiEngine;
-	/** Settings-resolved engine per role — the same slot treatment the
-	 *  job runner got, read FRESH per stage call (a settings PUT between
-	 *  stages lands). BYOK (owner, 2026-09-22): the chain (role override →
-	 *  slot → NOTHING) may end EMPTY → undefined; the front doors refuse
-	 *  with ModelsNotConfiguredError before any stage runs. */
-	engineFor?: (role: ModelRole) => PiEngine | undefined;
+	/** Settings-resolved engine per role — the same treatment the job
+	 *  runner got, read FRESH per stage call (a settings PUT between
+	 *  stages lands). A chat run passes its chatId, so the stages follow
+	 *  the session's teacher model (owner, 2026-11-27); a notes import
+	 *  passes none and runs the strong slot. BYOK (owner, 2026-09-22): the
+	 *  chain may end EMPTY → undefined (or a refusal); the front doors
+	 *  refuse with ModelsNotConfiguredError before any stage runs. */
+	engineFor?: SubagentEngineFor;
 	/** Key-presence gate (provider-key interlude, 2026-09-25): given a
 	 *  stage engine's provider + the role's slot tier, the injected check
 	 *  returns the refusal envelope when the provider's key is missing
@@ -795,26 +797,50 @@ export function callUsage(usage: Usage): CallUsage {
 	};
 }
 
+/** A stage refusal as the typed error the front doors already map
+ *  (trigger skip, 503 envelope); an unavailable model is a plain failure. */
+function refusalError(refusal: SubagentEngineRefusal): Error {
+	if (refusal.kind === "models") return new ModelsNotConfiguredError([refusal.tier]);
+	if (refusal.kind === "key") return new ProviderKeyMissingError(refusal.envelope.provider, refusal.envelope.slots);
+	return new Error(refusal.error);
+}
+
 export function createExtractionPipeline(deps: ExtractionPipelineDeps): ExtractionPipeline {
 	const { chatStore, graphStore } = deps;
 	// Stage-engine resolution: a direct test value wins; otherwise the
-	// engineFor chain (role override → slot → nothing, resolved FRESH per
-	// stage call server-side) — the job runner's exact treatment. undefined
-	// = the BYOK chain came up empty; the front-door guards turn that into
-	// an honest refusal.
-	const stageEngine = (role: ModelRole, override?: PiEngine): PiEngine | undefined =>
-		override ?? deps.engineFor?.(role);
+	// engineFor chain (session model → strong slot → nothing, resolved
+	// FRESH per stage call server-side) — the job runner's exact
+	// treatment. `chatId` is the session a chat run follows; a notes
+	// import has none. A refusal = the chain came up empty or its
+	// connection is gone; the front-door guards turn that into an honest
+	// refusal.
+	const stageEngine = (role: ModelRole, override: PiEngine | undefined, chatId: string | undefined): SubagentEngineChoice | Promise<SubagentEngineChoice> =>
+		override ? chooseSubagentEngine(() => override, role) : chooseSubagentEngine(deps.engineFor, role, chatId);
+	/** A stage's engine inside a run that already passed the gate: a
+	 *  refusal now (settings changed mid-run) fails the batch with the
+	 *  same typed errors. */
+	async function runnableStageEngine(role: ModelRole, override: PiEngine | undefined, chatId: string | undefined): Promise<PiEngine> {
+		const resolved = stageEngine(role, override, chatId);
+		const choice = resolved instanceof Promise ? await resolved : resolved;
+		if ("refusal" in choice) throw refusalError(choice.refusal);
+		return choice.engine;
+	}
 	/** The per-need refusal guard: which slot tiers the pipeline's stages
 	 *  found unset (test values count as configured — they ARE engines),
 	 *  and whether a configured stage's provider key is gone (provider-key
-	 *  interlude, 2026-09-25) — both refuse BEFORE any batch runs. */
-	function refuseIfStagesUnready(): void {
-		const stages: readonly [ModelRole, PiEngine | undefined][] = [
-			["extractor", stageEngine("extractor", deps.extractor)],
-			["auditor", stageEngine("auditor", deps.auditor)],
-		];
+	 *  interlude, 2026-09-25) — both refuse BEFORE any batch runs. With
+	 *  synchronous resolvers (direct engines) the gate stays synchronous, so
+	 *  the run registers before its first await; the server's resolver
+	 *  checks the session's connection first and returns a promise. */
+	function refuseIfStagesUnready(chatId: string | undefined): void | Promise<void> {
+		const extractor = stageEngine("extractor", deps.extractor, chatId);
+		const auditor = stageEngine("auditor", deps.auditor, chatId);
+		if (extractor instanceof Promise || auditor instanceof Promise) return Promise.all([extractor, auditor]).then(checkStages);
+		checkStages([extractor, auditor]);
+	}
+	function checkStages(stages: readonly SubagentEngineChoice[]): void {
 		const missing = new Set<ModelSlotName>();
-		for (const [role, engine] of stages) if (!engine) missing.add(ROLE_SLOT[role]);
+		for (const choice of stages) if ("refusal" in choice && choice.refusal.kind === "models") missing.add(choice.refusal.tier);
 		if (missing.size > 0) {
 			console.info(`[extraction] refused — no model configured for: ${[...missing].join(", ")}`);
 			throw new ModelsNotConfiguredError([...missing]);
@@ -822,8 +848,12 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// Key-presence parity: first offender surfaces (extractor before
 		// auditor); fixing that key re-gates and the next run surfaces the
 		// next offender, if any.
-		for (const [role, engine] of stages) {
-			const refusal = deps.providerKeyMissing?.(engine!.model.provider, ROLE_SLOT[role]);
+		for (const choice of stages) {
+			if ("refusal" in choice) {
+				console.info(`[extraction] refused — ${JSON.stringify(choice.refusal)}`);
+				throw refusalError(choice.refusal);
+			}
+			const refusal = deps.providerKeyMissing?.(choice.engine.model.provider, choice.tier);
 			if (refusal) {
 				console.info(`[extraction] refused — ${JSON.stringify(refusal)}`);
 				throw new ProviderKeyMissingError(refusal.provider, refusal.slots);
@@ -943,7 +973,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		const t0 = performance.now();
 
 		const findings = await runExtractor(
-			stageEngine("extractor", deps.extractor),
+			await runnableStageEngine("extractor", deps.extractor, sourceId),
 			sourceId,
 			prompt,
 			new Set(graph.nodes.map((n) => n.id)),
@@ -958,7 +988,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return findings;
 	}
 
-	async function audit(jobKey: string, sourceId: string, findings: SessionFindings): Promise<AuditVerdicts> {
+	/** `chatId`: the session a chat run follows; undefined for notes. */
+	async function audit(jobKey: string, sourceId: string, findings: SessionFindings, chatId: string | undefined): Promise<AuditVerdicts> {
 		const signal = runningExtractions.get(jobKey)?.controller.signal;
 		signal?.throwIfAborted(); // an abort during the extract→audit gap ends here
 		const graph = getGraph(graphStore);
@@ -976,7 +1007,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// to it — they add cognitive load, not signal.
 		const review = prepareAuditorReview({ chatStore, graphStore }, findings.propositions);
 		const auditResult = await runAuditor(
-			stageEngine("auditor", deps.auditor),
+			await runnableStageEngine("auditor", deps.auditor, chatId),
 			sourceId,
 			`Review these proposed findings against the supplied existing records. matches points from finding ids to candidateIds; candidates contains those records:\n\n` +
 				`${JSON.stringify(
@@ -1107,13 +1138,17 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// error below loses at most the in-flight batch — every earlier
 		// batch stays covered, the rest stays visibly uncovered.
 		try {
-			const record = chatStore.getChat(chatId);
-			if (!record) throw new Error(`Chat not found: ${chatId}`);
+			const found = chatStore.getChat(chatId);
+			if (!found) throw new Error(`Chat not found: ${chatId}`);
 			// BYOK per-need gate (owner, 2026-09-22) + key presence
 			// (2026-09-25): the write channel needs extractor + auditor
 			// engines AND their providers' keys; a refusal lands BEFORE any
 			// stage runs (typed — the trigger skips, routes surface 503).
-			refuseIfStagesUnready();
+			// Awaited only when the resolver is asynchronous (the session's
+			// connection check); the record is then read again.
+			const gate = refuseIfStagesUnready(chatId);
+			const record = gate ? (await gate, chatStore.getChat(chatId)) : found;
+			if (!record) throw new Error(`Chat not found: ${chatId}`);
 			const covered = coverageOf(record.messages, graphStore.readCoverage(), chatId);
 			const failedOutputCalls = failedOutputCallIds(record.messages);
 			if (covered.uncovered.length === 0) {
@@ -1168,7 +1203,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 							// stands AFTER every earlier job's merge.
 							return withAuditLock(jobKey, "chat", undefined, async () => {
 								setPhase(jobKey, "auditing", "chat", undefined, part);
-								const auditResult = await audit(jobKey, chatId, findings);
+								const auditResult = await audit(jobKey, chatId, findings, chatId);
 								setPhase(jobKey, "merging", "chat", undefined, part);
 								// SESSION-DELETION GUARD (wave 6): a chat deleted mid-run must never
 								// merge. The deletion route aborts this run first and runs its purge
@@ -1281,7 +1316,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		);
 		const t0 = performance.now();
 		const findings = await runNotesExtractor(
-			stageEngine("extractor", deps.extractor),
+			await runnableStageEngine("extractor", deps.extractor, undefined),
 			input.id,
 			prompt,
 			new Set(graph.nodes.map((n) => n.id)),
@@ -1306,8 +1341,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		try {
 			// BYOK per-need gate (owner, 2026-09-22) + key presence
 			// (2026-09-25): same refusal as the chat front door — no
-			// extractor/auditor engines, or a stage key gone, no run.
-			refuseIfStagesUnready();
+			// extractor/auditor engines, or a stage key gone, no run. No
+			// session here: the stages run the strong slot.
+			const gate = refuseIfStagesUnready(undefined);
+			if (gate) await gate;
 			// CHUNKED like the chat path (owner, 2026-09-28): each chunk is a
 			// standalone extract → audit → merge, so no single call carries a
 			// whole large file. Abort mid-run keeps earlier chunks merged
@@ -1344,7 +1381,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 							// per chunk so cross-source runs interleave fairly.
 							return withAuditLock(jobKey, "notes", input.filePath, async () => {
 								setPhase(jobKey, "auditing", "notes", input.filePath, part);
-								const auditResult = await audit(jobKey, input.id, findings);
+								const auditResult = await audit(jobKey, input.id, findings, undefined);
 								setPhase(jobKey, "merging", "notes", input.filePath, part);
 								const merged = mergeFindings(
 									id,

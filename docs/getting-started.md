@@ -11,7 +11,9 @@ Open **Settings → Providers** and configure a connection:
 - **[Claude Code](claude-code.md):** use a separately installed and authenticated CLI. Its own configuration controls routing and billing; this is not a subscription-only guarantee.
 - **[Custom endpoint](custom-providers.md):** connect one OpenAI-compatible server, including a local model server. LearnHarness does not install or download models.
 
-Choose **Strong**, **Cheap**, and **Vision** models in Settings. There are no factory model selections. New sessions start with Strong; background roles use their assigned slots or role overrides. A model selected inside an existing session belongs to that session and does not change background-role choices.
+Choose a **Strong** model in Settings, and optionally a **Vision** model. There are no factory model selections. New sessions start with Strong. A model selected inside an existing session belongs to that session.
+
+The session's helpers (researcher, demo builder, figure maker, PDF reader, the graph extractor and auditor, and the Anki card writer) run on that session's own model, with its thinking level. When the session's model is text-only, the figure maker and the PDF reader use the Vision model instead; with no Vision model set, they report that none is configured. If the session's connection is unavailable (a missing key, a signed-out subscription, background use turned off), the helper reports it and never switches to another provider. **Import notes** has no session, so it uses Strong. Settings files from older versions may still hold a **Cheap** model; it is kept but no longer used.
 
 Optional web search supports Tavily, Brave, Exa, Firecrawl, and hosted Ollama search; configure a key for the engine you want to use. Research can still fetch known URLs without a search key. Dictation has its own service key below.
 

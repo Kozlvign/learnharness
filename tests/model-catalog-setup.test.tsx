@@ -91,12 +91,13 @@ test("cached setup is immediately usable; fresh metadata/untouched slots update 
 	assert.equal(element("setup-trigger-strong").textContent, "model:free▾");
 	await click("setup-trigger-strong"); await click("model-option-claude-opus-5-5");
 	await click("setup-thinking-strong"); await click("thinking-option-medium");
-	const fresh = catalog(); fresh.slots.cheap = { model: { provider: b.provider, id: b.id }, thinkingLevel: "off" };
+	const fresh = catalog(); fresh.slots.vision = { model: { provider: b.provider, id: b.id }, thinkingLevel: "off" };
 	fresh.models[1] = { ...b, supportedLevels: ["off", "medium", "high"] };
 	await answer(1, fresh);
 	assert.equal(element("setup-trigger-strong").textContent, "claude-opus-5-5▾");
 	assert.equal(element("setup-thinking-strong").textContent?.trim(), "medium▾");
-	assert.equal(element("setup-trigger-cheap").textContent, "claude-opus-5-5▾");
+	assert.equal(element("setup-trigger-vision").textContent, "claude-opus-5-5▾");
+	assert.equal(document.querySelector('[data-testid="setup-trigger-cheap"]'), null, "the unused Cheap slot is not offered");
 	await click("setup-thinking-strong"); assert.deepEqual(levels(), ["off", "medium✓", "high"]);
 	await click("setup-thinking-strong");
 	await act(async () => snapshot.refresh()); await answer(2, null);
@@ -104,8 +105,9 @@ test("cached setup is immediately usable; fresh metadata/untouched slots update 
 	await click("setup-save");
 	assert.deepEqual(writes[0], {
 		strong: { model: { provider: b.provider, id: b.id }, thinkingLevel: "medium" },
-		cheap: { model: { provider: b.provider, id: b.id }, thinkingLevel: "off" },
-		vision: { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" },
+		vision: { model: { provider: b.provider, id: b.id }, thinkingLevel: "off" },
+		// A stored Cheap slot rides along unchanged (older versions still read it).
+		cheap: { model: { provider: a.provider, id: a.id }, thinkingLevel: "high" },
 	});
 });
 
@@ -153,43 +155,97 @@ test("cold saved disconnected pins still enter the provider stage, without any m
 	assert.deepEqual(stages, ["setup-stage-loading", "setup-stage-keys"]);
 });
 
-for (const count of [0, 1, 2]) test(`connecting with ${count} saved slots only requires the missing slots; stale identities/thinking survive`, async () => {
+for (const vision of [false, true]) test(`connecting without a saved Strong requires only Strong (${vision ? "Vision picked" : "Vision left empty"}); a stored Cheap and stale identities survive`, async () => {
 	installFetch(); const before = catalog(false);
-	if (count < 1) before.slots.strong = null;
-	if (count < 2) before.slots.cheap = null;
-	before.slots.vision = null;
-	if (before.slots.strong) before.slots.strong.thinkingLevel = "xhigh";
+	before.slots.strong = null; before.slots.vision = null; // a stored Cheap stays saved (older settings)
 	await warm(before);
 	let closed = 0; await render(<><Reader />{setup(() => { closed++; })}</>); await answer(1, before);
 	assert.ok(element("setup-stage-keys"));
 	const connected = { ...before, models: [{ ...b, provider: "other" }], providers: [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }] };
 	await act(async () => notifySettingsSaved("keys")); await answer(2, connected);
 	assert.ok(element("setup-stage-pickers")); assert.equal(document.querySelector('[data-testid="setup-stage-keys"]'), null); assert.equal(closed, 0);
-	for (const slot of ["strong", "cheap", "vision"] as const) {
-		if (before.slots[slot]) continue;
-		await click(`setup-trigger-${slot}`); await click("model-option-claude-opus-5-5");
-	}
-	if (count > 0) assert.equal(element("setup-thinking-strong").textContent?.trim(), "xhigh▾");
+	assert.equal(document.querySelector('[data-testid="setup-trigger-cheap"]'), null, "no Cheap picker");
+	assert.ok(element("setup-needed-strong")); assert.ok(element("setup-optional-vision"));
+	assert.equal(document.querySelector('[data-testid="setup-needed-vision"]'), null, "Vision is never marked needed");
+	assert.equal(element("setup-save").hasAttribute("disabled"), true, "Strong is required");
+	await click("setup-trigger-strong"); await click("model-option-claude-opus-5-5");
+	if (vision) { await click("setup-trigger-vision"); await click("model-option-claude-opus-5-5"); }
+	assert.equal(element("setup-save").hasAttribute("disabled"), false, "Vision is optional");
 	await click("setup-save");
-	for (const slot of ["strong", "cheap", "vision"] as const) {
-		if (before.slots[slot]) assert.deepEqual(writes[0]?.[slot], before.slots[slot]);
-		else assert.equal(writes[0]?.[slot]?.model?.provider, "other");
-	}
+	assert.equal(writes[0]?.strong?.model?.provider, "other");
+	if (vision) assert.equal(writes[0]?.vision?.model?.provider, "other");
+	else assert.equal(Object.hasOwn(writes[0]!, "vision"), false, "an empty Vision is not written");
+	assert.deepEqual(writes[0]?.cheap, before.slots.cheap, "the stored Cheap slot is kept as it is");
+});
+
+test("connecting with a saved Strong closes setup without writes, even while Vision is empty", async () => {
+	installFetch(); const before = catalog(false);
+	before.slots.cheap = null; before.slots.vision = null; before.slots.strong!.thinkingLevel = "xhigh";
+	await warm(before);
+	let closed = 0; await render(<><Reader />{setup(() => { closed++; })}</>); await answer(1, before);
+	assert.ok(element("setup-stage-keys"));
+	const connected = { ...before, models: [{ ...b, provider: "other" }], providers: [{ id: "other", envVar: "OTHER_KEY", keyPresent: true }] };
+	await act(async () => notifySettingsSaved("keys")); await answer(2, connected);
+	assert.equal(closed, 1); assert.deepEqual(writes, []);
+});
+
+test("the Vision menu's None row clears the pick, and Save then omits Vision", async () => {
+	installFetch(); await warm(); await render(<><Reader />{setup()}</>); await answer(1, catalog());
+	assert.equal(element("setup-trigger-vision").textContent, "model:free▾");
+	await click("setup-trigger-strong");
+	assert.equal(document.querySelector('[data-testid="model-option-none"]'), null, "Strong has no None row");
+	await click("setup-trigger-strong");
+	await click("setup-trigger-vision");
+	assert.equal(element("model-option-none").textContent, "None — use the session's model");
+	await click("model-option-none");
+	assert.equal(element("setup-trigger-vision").textContent, "Pick a model…▾");
+	assert.equal(element("setup-thinking-vision").hasAttribute("disabled"), true);
+	await act(async () => snapshot.refresh()); await answer(2, catalog());
+	assert.equal(element("setup-trigger-vision").textContent, "Pick a model…▾", "a refresh never restores the cleared slot");
+	await click("setup-save");
+	assert.equal(Object.hasOwn(writes[0]!, "vision"), false);
+	assert.equal(writes[0]?.strong?.model?.id, a.id);
 });
 
 test("a partial setup's model/thinking edits survive exclusive provider recovery, but reopening discards the abandoned draft", async () => {
-	installFetch(); const before = catalog(); before.slots.cheap = null; before.slots.vision = null;
+	// Partial = Strong unsaved (the only required slot); Vision is saved.
+	installFetch(); const before = catalog(); before.slots.strong = null; before.slots.cheap = null;
 	await warm(before); await render(<><Reader />{setup()}</>); await answer(1, before);
 	await click("setup-trigger-strong"); await click("model-option-claude-opus-5-5");
 	await click("setup-thinking-strong"); await click("thinking-option-medium");
+	await click("setup-thinking-vision"); await click("thinking-option-high");
 	await act(async () => notifySettingsSaved("keys")); await answer(2, { ...before, models: [], providers: [] });
 	assert.ok(element("setup-stage-keys")); assert.equal(document.querySelector('[data-testid="setup-stage-pickers"]'), null);
 	await act(async () => notifySettingsSaved("keys")); await answer(3, before);
 	assert.equal(element("setup-trigger-strong").textContent, "claude-opus-5-5▾");
 	assert.equal(element("setup-thinking-strong").textContent?.trim(), "medium▾");
+	assert.equal(element("setup-thinking-vision").textContent?.trim(), "high▾");
 	await render(<Reader />); await render(<><Reader />{setup()}</>);
-	assert.equal(element("setup-trigger-strong").textContent, "model:free▾");
-	assert.equal(element("setup-thinking-strong").textContent?.trim(), "low▾"); await answer(4, before);
+	assert.equal(element("setup-trigger-strong").textContent, "Pick a model…▾");
+	assert.equal(element("setup-thinking-vision").textContent?.trim(), "low▾"); await answer(4, before);
+});
+
+test("Agent settings: no Cheap row; Vision's None row clears the slot; Strong has none", async () => {
+	installFetch(); await warm();
+	const changes: ModelsSettings[] = [];
+	const initial: ModelsSettings = {
+		strong: { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" },
+		cheap: { model: { provider: a.provider, id: a.id }, thinkingLevel: "high" },
+		vision: { model: { provider: b.provider, id: b.id }, thinkingLevel: "medium", cacheRetention: "none" },
+	};
+	await render(<><Reader /><AgentSection agent={undefined} models={initial} graph={undefined} compaction={undefined} onSectionChange={() => true} onModelsChange={(next) => { changes.push(next); }} onCompactionChange={() => true} /></>);
+	assert.equal(document.querySelector('[data-testid="slot-row-cheap"]'), null);
+	await click("slot-model-strong");
+	assert.equal(document.querySelector('[data-testid="model-option-none"]'), null, "Strong is required: no None row");
+	assert.match(element("slot-model-menu-strong").textContent ?? "", /Runs new sessions and their assistants/);
+	await click("slot-model-strong");
+	await click("slot-model-vision");
+	assert.match(element("slot-model-menu-vision").textContent ?? "", /Used only when the session's model is text-only/);
+	assert.equal(element("model-option-none").textContent, "None — use the session's model");
+	await click("model-option-none");
+	assert.deepEqual(changes.at(-1), { strong: initial.strong, cheap: initial.cheap }, "Vision and its cache preference go; the rest is untouched");
+	assert.equal(document.querySelector('[data-testid="slot-model-menu-vision"]'), null, "the pick closes the menu");
+	await answer(1, catalog());
 });
 
 test("Agent opens with cached thinking metadata; refresh and disconnect never clear saved levels", async () => {
@@ -211,9 +267,13 @@ test("saved completeness follows ordinary repairs and survives temporary connect
 	await render(<StateReader />); await answer(0, catalog());
 	assert.equal(state!.configured, true);
 	await act(async () => notifySettingsSaved("keys")); assert.equal(state!.configured, true);
-	const partial = catalog(false); partial.slots.vision = null;
+	const optional = catalog(false); optional.slots.vision = null; optional.slots.cheap = null;
+	const partial = catalog(false); partial.slots.strong = null;
 	await answer(1, partial); assert.equal(state!.configured, false); assert.equal(state!.zeroKeys, true);
-	await act(async () => notifySettingsSaved("models")); await answer(2, catalog(false));
+	await act(async () => notifySettingsSaved("models")); await answer(2, optional);
+	assert.equal(state!.configured, true, "Strong alone completes setup");
+	await act(async () => notifySettingsSaved("models")); await answer(3, partial); assert.equal(state!.configured, false);
+	await act(async () => notifySettingsSaved("models")); await answer(4, catalog(false));
 	assert.equal(state!.configured, true); assert.equal(state!.zeroKeys, true, "saved is not connected");
 });
 
@@ -284,7 +344,8 @@ test("availability and setup completeness never conflate missing metadata, disco
 	assert.equal(selectedModelUnavailable(body, undefined), false);
 	body.models = [b]; body.providers = [{ ...provider, keyPresent: true }];
 	assert.equal(selectedModelUnavailable(body, `${b.provider}:${b.id}`), false);
-	body.slots.cheap = null; assert.equal(savedSlotsConfigured(body.slots), false);
+	body.slots.cheap = null; body.slots.vision = null; assert.equal(savedSlotsConfigured(body.slots), true, "only Strong is required");
+	body.slots.strong = null; assert.equal(savedSlotsConfigured(body.slots), false);
 });
 
 test("shared refresh fences late failure as well as late success, and Retry clears a current error", async () => {
@@ -319,7 +380,7 @@ test("cache retention is hidden by default, slot-specific, resettable, and prese
 	await click("models-advanced");
 	assert.equal(element("models-advanced").textContent, "Hide advanced settings");
 	assert.equal(element("slot-cache-strong").textContent, "Cache: long▾");
-	assert.equal(element("slot-cache-cheap").textContent, "Cache: default▾");
+	assert.equal(document.querySelector('[data-testid="slot-cache-cheap"]'), null, "no Cheap row");
 	assert.equal(element("slot-cache-vision").textContent, "Cache: not requested▾");
 	await click("slot-cache-strong");
 	const escape = new dom.window.Event("keydown", { bubbles: true, cancelable: true });
